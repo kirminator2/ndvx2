@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Продавцы</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+                <div class="container-fluid">
+                    <a class="navbar-brand" href="#">
+                        <i class="fas fa-home me-2"></i>
+                        Админка недвижимости
+                    </a>
+                    <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                        <li class="nav-item">
+                            <a class="nav-link" href="/" id="menu-objects"><i class="fas fa-list me-1"></i>Объекты</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/complexes" id="menu-complexes"><i class="fas fa-city me-1"></i>ЖК</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/yandex-newbuildings" id="menu-yandex"><i class="fab fa-yandex me-1"></i>Яндекс-ЖК</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/sellers" id="menu-sellers"><i class="fas fa-users me-1"></i>Продавцы</a>
+                        </li>
+                    </ul>
+                    <div class="navbar-nav ms-auto">
+                        <div class="dropdown me-2">
+                            <button class="btn btn-outline-light dropdown-toggle" type="button" id="bulkActionsDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-tasks me-1"></i>Массовые действия
+                            </button>
+                            <ul class="dropdown-menu" aria-labelledby="bulkActionsDropdown">
+                                <li><a class="dropdown-item" href="#" onclick="downloadAndUpdateData()"><i class="fas fa-download me-1"></i>Скачать и обновить</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="importComplexes()"><i class="fas fa-upload me-1"></i>Импортировать ЖК</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="geocodeAllProperties()"><i class="fas fa-map-marker-alt me-1"></i>Геокодировать все</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="geocodeAllComplexes()"><i class="fas fa-map-marker me-1"></i>Геокодировать все ЖК</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="importSellerContacts()"><i class="fas fa-users me-1"></i>Импортировать продавцов</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item" href="#" onclick="linkPropertiesComplexes()"><i class="fas fa-link me-1"></i>Связать объекты и ЖК</a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item" href="#" onclick="importYandexNewbuildings()"><i class="fab fa-yandex me-1"></i>Импорт Яндекс-ЖК</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="updateYandexLinks()"><i class="fas fa-link me-1"></i>Обновить связи</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="updateRatings()"><i class="fas fa-star me-1"></i>Обновить рейтинг</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+        </div>
+    </div>
+</div>
+<div class="container mt-4">
+    <h2 class="mb-4"><i class="fas fa-users me-2"></i>Продавцы</h2>
+    <div class="row mb-3">
+        <div class="col-md-4">
+            <input type="text" class="form-control" id="seller-search" placeholder="Поиск по телефону, имени или комменту...">
+        </div>
+        <div class="col-md-2">
+            <button class="btn btn-primary w-100" onclick="loadSellers(1)"><i class="fas fa-search me-1"></i>Поиск</button>
+        </div>
+        <div class="col-md-2">
+            <a href="/admin" class="btn btn-secondary w-100">Назад</a>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>#</th>
+                    <th>Дата</th>
+                    <th>Телефон</th>
+                    <th>Имя</th>
+                    <th>Комментарий</th>
+                    <th>Offer</th>
+                    <th>UTM Medium</th>
+                    <th>UTM Source</th>
+                    <th>UTM Term</th>
+                    <th>Аудио</th>
+                </tr>
+            </thead>
+            <tbody id="sellers-tbody"></tbody>
+        </table>
+    </div>
+    <nav>
+        <ul class="pagination" id="sellers-pagination"></ul>
+    </nav>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+let sellersCurrentPage = 1;
+let sellersTotalPages = 1;
+
+async function loadSellers(page = 1) {
+    const search = document.getElementById('seller-search').value.trim();
+    const params = new URLSearchParams({ page, per_page: 20 });
+    if (search) params.append('search', search);
+    const resp = await fetch(`/api/seller-contacts?${params}`);
+    const data = await resp.json();
+    sellersCurrentPage = data.current_page;
+    sellersTotalPages = data.pages;
+    renderSellersTable(data.items);
+    renderSellersPagination();
+}
+
+function renderSellersTable(items) {
+    const tbody = document.getElementById('sellers-tbody');
+    if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="10" class="text-center">Нет данных</td></tr>';
+        return;
+    }
+    tbody.innerHTML = items.map((c, idx) => `
+        <tr>
+            <td>${c.id}</td>
+            <td>${c.date || ''}</td>
+            <td>${c.phone || ''}</td>
+            <td>${c.name || ''}</td>
+            <td>${c.comment || ''}</td>
+            <td>${c.offer || ''}</td>
+            <td>${c.utm_medium || ''}</td>
+            <td>${c.utm_source || ''}</td>
+            <td>${c.utm_term || ''}</td>
+            <td>${c.audio ? `<a href="${c.audio}" target="_blank">Аудио</a>` : ''}</td>
+        </tr>
+    `).join('');
+}
+
+function renderSellersPagination() {
+    const pag = document.getElementById('sellers-pagination');
+    let html = '';
+    for (let i = 1; i <= sellersTotalPages; i++) {
+        html += `<li class="page-item${i === sellersCurrentPage ? ' active' : ''}"><a class="page-link" href="#" onclick="loadSellers(${i});return false;">${i}</a></li>`;
+    }
+    pag.innerHTML = html;
+}
+
+document.getElementById('seller-search').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') loadSellers(1);
+});
+window.onload = () => loadSellers(1);
+
+function importSellerContacts() {
+    if (!confirm('Импортировать продавцов из Google Sheets? Все старые данные будут удалены.')) return;
+    fetch('/api/import-seller-contacts')
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('Импорт завершен!');
+            } else {
+                alert('Ошибка импорта!');
+            }
+        })
+        .catch(() => alert('Ошибка запроса!'));
+}
+</script>
+</body>
+</html> 

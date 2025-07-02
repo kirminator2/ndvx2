@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Яндекс-ЖК</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-12">
+                <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+                    <div class="container-fluid">
+                        <a class="navbar-brand" href="#">
+                            <i class="fas fa-home me-2"></i>
+                            Админка недвижимости
+                        </a>
+                        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                            <li class="nav-item">
+                                <a class="nav-link" href="/" id="menu-objects"><i class="fas fa-list me-1"></i>Объекты</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="/complexes" id="menu-complexes"><i class="fas fa-city me-1"></i>ЖК</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link active" href="/yandex-newbuildings" id="menu-yandex"><i class="fab fa-yandex me-1"></i>Яндекс-ЖК</a>
+                            </li>
+                        </ul>
+                        <div class="navbar-nav ms-auto">
+                            <div class="dropdown me-2">
+                                <button class="btn btn-outline-light dropdown-toggle" type="button" id="bulkActionsDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="fas fa-tasks me-1"></i>Массовые действия
+                                </button>
+                                <ul class="dropdown-menu" aria-labelledby="bulkActionsDropdown">
+                                    <li><a class="dropdown-item" href="#" onclick="importYandexNewbuildings()"><i class="fab fa-yandex me-1"></i>Импорт Яндекс-ЖК</a></li>
+                                    <li><a class="dropdown-item" href="#" onclick="geocodeRegion()"><i class="fas fa-map-marker-alt me-1"></i>Определить адреса для региона</a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item text-danger" href="#" onclick="stopAllTasks()"><i class="fas fa-stop-circle me-1"></i>Остановить все задачи</a></li>
+                                    <li><a class="dropdown-item" href="#" onclick="showLinkedYandexModal()"><i class="fas fa-link me-1"></i>Связанные объекты и Яндекс-ЖК</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </nav>
+            </div>
+        </div>
+    </div>
+    <div class="container-fluid mt-4">
+        <h2 class="mb-4"><i class="fab fa-yandex me-2"></i>Яндекс-ЖК (новостройки)</h2>
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <input type="text" class="form-control" id="search-input" placeholder="Поиск по названию ЖК...">
+            </div>
+            <div class="col-md-4">
+                <select class="form-select" id="region-select">
+                    <option value="">Все регионы</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary w-100" onclick="loadYandexNewbuildings(1)"><i class="fas fa-search me-1"></i>Поиск</button>
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-outline-success w-100" onclick="geocodeRegion()"><i class="fas fa-map-marker-alt me-1"></i>Определить адреса для региона</button>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-bordered table-hover align-middle" id="yandex-table">
+                <thead class="table-light">
+                    <tr>
+                        <th>#</th>
+                        <th>Регион</th>
+                        <th>Название ЖК</th>
+                        <th>ID ЖК</th>
+                        <th>Очередь</th>
+                        <th>Срок сдачи</th>
+                        <th>Адрес</th>
+                        <th>ID корпуса</th>
+                        <th>Ссылка</th>
+                        <th>Адрес</th>
+                    </tr>
+                </thead>
+                <tbody id="yandex-tbody"></tbody>
+            </table>
+        </div>
+        <nav>
+            <ul class="pagination" id="yandex-pagination"></ul>
+        </nav>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Toast контейнер -->
+    <div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1055">
+        <div id="toast-container"></div>
+    </div>
+    <script>
+        let yandexCurrentPage = 1;
+        let yandexTotalPages = 1;
+        let yandexSearch = '';
+        let yandexRegion = '';
+        async function loadYandexRegions() {
+            const response = await fetch('/api/yandex-newbuildings/regions');
+            const regions = await response.json();
+            const select = document.getElementById('region-select');
+            select.innerHTML = '<option value="">Все регионы</option>' + regions.map(r => `<option value="${r}">${r}</option>`).join('');
+        }
+        async function loadYandexNewbuildings(page = 1) {
+            yandexSearch = document.getElementById('search-input').value;
+            yandexRegion = document.getElementById('region-select').value;
+            const params = new URLSearchParams({ page, per_page: 20, search: yandexSearch, region: yandexRegion });
+            const response = await fetch(`/api/yandex-newbuildings?${params}`);
+            const data = await response.json();
+            yandexCurrentPage = data.current_page;
+            yandexTotalPages = data.pages;
+            renderYandexTable(data.items);
+            renderYandexPagination();
+        }
+        function renderYandexTable(items) {
+            const tbody = document.getElementById('yandex-tbody');
+            if (!items.length) {
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center">Нет данных</td></tr>';
+                return;
+            }
+            tbody.innerHTML = items.map((item, idx) => `
+                <tr>
+                    <td>${(yandexCurrentPage - 1) * 20 + idx + 1}</td>
+                    <td>${item.region}</td>
+                    <td>${item.complex_name}</td>
+                    <td>${item.complex_id}</td>
+                    <td>${item.queue}</td>
+                    <td>${item.ready_date}</td>
+                    <td>${item.address}</td>
+                    <td>${item.building_id}</td>
+                    <td><a href="${item.url}" target="_blank">Ссылка</a></td>
+                    <td>
+                        ${item.address_id && item.dadata_address ? `<span class="text-success"><i class='fas fa-map-marker-alt me-1'></i>${item.dadata_address}</span>` : `<button class="btn btn-sm btn-outline-info" onclick="geocodeOne(${item.id}, this)"><i class="fas fa-map-marker-alt"></i> Определить адрес</button>`}
+                    </td>
+                </tr>
+            `).join('');
+        }
+        function renderYandexPagination() {
+            const pagination = document.getElementById('yandex-pagination');
+            if (yandexTotalPages <= 1) { pagination.innerHTML = ''; return; }
+            let html = '';
+            html += `<li class="page-item ${yandexCurrentPage === 1 ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadYandexNewbuildings(${yandexCurrentPage - 1})">Предыдущая</a></li>`;
+            for (let i = Math.max(1, yandexCurrentPage - 2); i <= Math.min(yandexTotalPages, yandexCurrentPage + 2); i++) {
+                html += `<li class="page-item ${i === yandexCurrentPage ? 'active' : ''}"><a class="page-link" href="#" onclick="loadYandexNewbuildings(${i})">${i}</a></li>`;
+            }
+            html += `<li class="page-item ${yandexCurrentPage === yandexTotalPages ? 'disabled' : ''}"><a class="page-link" href="#" onclick="loadYandexNewbuildings(${yandexCurrentPage + 1})">Следующая</a></li>`;
+            pagination.innerHTML = html;
+        }
+        async function geocodeRegion() {
+            const region = document.getElementById('region-select').value;
+            if (!region) {
+                showToast('Выберите регион для массового определения адресов', 'warning');
+                return;
+            }
+            const button = event.target;
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Обработка...';
+            button.disabled = true;
+            try {
+                const response = await fetch('/api/yandex-geocode-region', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ region })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showToast(`Обработано: ${result.processed}, ошибок: ${result.errors}, всего: ${result.total}`, 'success');
+                    loadYandexNewbuildings(1);
+                } else {
+                    showToast('Ошибка: ' + result.error, 'danger');
+                }
+            } catch (e) {
+                showToast('Ошибка при массовом определении адресов', 'danger');
+            } finally {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+        }
+        async function geocodeOne(id, btn) {
+            const button = btn;
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Обработка...';
+            button.disabled = true;
+            try {
+                const response = await fetch(`/api/yandex-geocode-one/${id}`, { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    showToast('Адрес успешно определен!', 'success');
+                    loadYandexNewbuildings(yandexCurrentPage);
+                } else {
+                    showToast('Ошибка: ' + result.error, 'danger');
+                }
+            } catch (e) {
+                showToast('Ошибка при определении адреса', 'danger');
+            } finally {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+        }
+        async function importYandexNewbuildings() {
+            const btn = event?.target;
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Импорт...'; }
+            try {
+                const response = await fetch('/api/import-yandex-newbuildings');
+                const result = await response.json();
+                if (result.success) {
+                    showToast('Импорт Яндекс-ЖК завершен!', 'success');
+                    loadYandexNewbuildings(1);
+                } else {
+                    showToast('Ошибка: ' + result.error, 'danger');
+                }
+            } catch (e) {
+                showToast('Ошибка при импорте Яндекс-ЖК', 'danger');
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fab fa-yandex me-1"></i>Импорт Яндекс-ЖК'; }
+            }
+        }
+        async function stopAllTasks() {
+            const btn = event?.target;
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Остановка...'; }
+            try {
+                const response = await fetch('/api/stop-all-tasks', { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    showToast('Все задачи остановлены', 'warning');
+                } else {
+                    showToast('Ошибка: ' + result.error, 'danger');
+                }
+            } catch (e) {
+                showToast('Ошибка при остановке задач', 'danger');
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-stop-circle me-1"></i>Остановить все задачи'; }
+            }
+        }
+        function showToast(message, type = 'info') {
+            const toastId = 'toast-' + Date.now();
+            const toastHtml = `
+                <div id="${toastId}" class="toast align-items-center text-bg-${type === 'danger' ? 'danger' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : 'primary'} border-0 mb-2" role="alert" aria-live="assertive" aria-atomic="true">
+                    <div class="d-flex">
+                        <div class="toast-body">${message}</div>
+                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                    </div>
+                </div>`;
+            document.getElementById('toast-container').insertAdjacentHTML('beforeend', toastHtml);
+            const toastEl = document.getElementById(toastId);
+            const toast = new bootstrap.Toast(toastEl, { delay: 4000 });
+            toast.show();
+            toastEl.addEventListener('hidden.bs.toast', () => toastEl.remove());
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            loadYandexRegions().then(() => loadYandexNewbuildings(1));
+        });
+        // Модалка для связанных объектов и Яндекс-ЖК
+        document.body.insertAdjacentHTML('beforeend', `
+            <div class="modal fade" id="linkedYandexModal" tabindex="-1" aria-labelledby="linkedYandexModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="linkedYandexModalLabel"><i class="fas fa-link me-2"></i>Связанные объекты и Яндекс-ЖК</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body" id="linked-yandex-content">
+                            <div class="text-center text-muted"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `);
+        async function showLinkedYandexModal() {
+            const modal = new bootstrap.Modal(document.getElementById('linkedYandexModal'));
+            document.getElementById('linked-yandex-content').innerHTML = '<div class="text-center text-muted"><i class="fas fa-spinner fa-spin"></i> Загрузка...</div>';
+            modal.show();
+            try {
+                const response = await fetch('/api/link-properties-yandex');
+                const result = await response.json();
+                if (result.success && result.linked_data.length) {
+                    document.getElementById('linked-yandex-content').innerHTML = renderLinkedYandex(result.linked_data);
+                } else {
+                    document.getElementById('linked-yandex-content').innerHTML = '<div class="text-center text-muted">Нет связанных объектов и Яндекс-ЖК</div>';
+                }
+            } catch (e) {
+                document.getElementById('linked-yandex-content').innerHTML = '<div class="text-danger">Ошибка загрузки связей</div>';
+            }
+        }
+        function renderLinkedYandex(data) {
+            return data.map(item => `
+                <div class="card mb-4">
+                    <div class="card-header bg-light">
+                        <strong><i class="fas fa-map-marker-alt me-1"></i>${item.address.address || 'Без адреса'}</strong>
+                        <span class="text-muted ms-2">${item.address.full_address || ''}</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>Объекты (${item.properties.length}):</h6>
+                                <ul class="list-group mb-2">
+                                    ${item.properties.map(p => `<li class=\"list-group-item small\"><span class=\"text-muted\">ID: ${p.id}</span> — ${p.title} <span class=\"text-muted\">(${p.address})</span> — <b>${p.price ? p.price + ' ₽' : ''}</b></li>`).join('')}
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Яндекс-ЖК (${item.yandex_newbuildings.length}):</h6>
+                                <ul class="list-group mb-2">
+                                    ${item.yandex_newbuildings.map(yb => `<li class="list-group-item small">${yb.complex_name} <span class="text-muted">(${yb.address})</span> <a href="${yb.url}" target="_blank">[ссылка]</a></li>`).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+    </script>
+</body>
+</html> 

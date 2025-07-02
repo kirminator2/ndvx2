@@ -1,3 +1,7 @@
+import functools
+import signal
+import threading
+
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 import pandas as pd
@@ -11,7 +15,7 @@ import json as pyjson
 import csv
 from sqlalchemy.orm import aliased, joinedload
 from sqlalchemy import or_
-# from gpt4free import g4f
+from g4f.client import Client
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///real_estate.db'
@@ -25,6 +29,7 @@ DADATA_API_URL = "https://suggestions.dadata.ru/suggestions/api/4_1/rs/geolocate
 ANTIZNAK_KEY = "72UL79FJ32"
 
 STOP_GEOCODING_TASKS = False
+
 
 class Address(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -41,6 +46,7 @@ class Address(db.Model):
     house = db.Column(db.String(50))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 
 class Property(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -136,6 +142,7 @@ class Property(db.Model):
     address_id = db.Column(db.Integer, db.ForeignKey('address.id'))
     dadata_address = db.relationship('Address', backref='properties')
 
+
 class AntiznakStatus(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     property_id = db.Column(db.Integer, db.ForeignKey('property.id'), unique=True, nullable=False)
@@ -145,6 +152,7 @@ class AntiznakStatus(db.Model):
     error = db.Column(db.Text)
     source_url = db.Column(db.String(1000))
     property = db.relationship('Property', backref=db.backref('antiznak_status', uselist=False))
+
 
 class ResidentialComplex(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -168,6 +176,7 @@ class ResidentialComplex(db.Model):
     address_id = db.Column(db.Integer, db.ForeignKey('address.id'))
     dadata_address = db.relationship('Address', backref='complexes')
 
+
 class YandexNewBuilding(db.Model):
     __tablename__ = 'yandex_newbuildings'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -182,6 +191,7 @@ class YandexNewBuilding(db.Model):
     address_id = db.Column(db.Integer, db.ForeignKey('address.id'))
     dadata_address = db.relationship('Address', backref='yandex_newbuildings')
 
+
 class Lead2CallLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     phone = db.Column(db.String(32), nullable=False)
@@ -189,11 +199,13 @@ class Lead2CallLog(db.Model):
     error_message = db.Column(db.Text)
     sent_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+
 class PropertyRating(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     property_id = db.Column(db.Integer, db.ForeignKey('property.id'), unique=True, nullable=False)
     rating = db.Column(db.Integer, nullable=False)
     property = db.relationship('Property', backref=db.backref('rating_obj', uselist=False))
+
 
 class PropertyYandexRating(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -201,11 +213,13 @@ class PropertyYandexRating(db.Model):
     yandex_rating = db.Column(db.Integer, nullable=False)
     property = db.relationship('Property', backref=db.backref('yandex_rating_obj', uselist=False))
 
+
 class PropertyYandexLink(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     property_id = db.Column(db.Integer, db.ForeignKey('property.id'), unique=True)
     yandex_complex_name = db.Column(db.String(255))
     property = db.relationship('Property', backref=db.backref('yandex_link', uselist=False))
+
 
 class PropertyGeneratedDescription(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -214,6 +228,7 @@ class PropertyGeneratedDescription(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     property = db.relationship('Property', backref=db.backref('generated_description_obj', uselist=False))
+
 
 class SellerContact(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -227,11 +242,13 @@ class SellerContact(db.Model):
     utm_term = db.Column(db.String(64))
     audio = db.Column(db.String(512))
 
+
 # Импорт продавцов из CSV
 import requests
 import csv
 
 SELLERS_CSV_URL = 'https://docs.google.com/spreadsheets/d/1FslDFa7gKzQ1N6H6txhJuj0tKFV1QuWZVpITsAecsQI/export?format=csv&id=1FslDFa7gKzQ1N6H6txhJuj0tKFV1QuWZVpITsAecsQI&gid=0'
+
 
 def import_seller_contacts():
     try:
@@ -259,14 +276,17 @@ def import_seller_contacts():
         print(f'Ошибка при импорте продавцов: {e}')
         return False
 
+
 @app.route('/api/import-seller-contacts')
 def api_import_seller_contacts():
     success = import_seller_contacts()
     return jsonify({'success': success})
 
+
 @app.route('/sellers')
 def sellers_page():
     return render_template('sellers.html')
+
 
 @app.route('/api/seller-contacts')
 def api_seller_contacts():
@@ -303,6 +323,7 @@ def api_seller_contacts():
         'per_page': per_page
     })
 
+
 def parse_date(date_str):
     if pd.isna(date_str) or date_str == '':
         return None
@@ -310,6 +331,7 @@ def parse_date(date_str):
         return datetime.strptime(str(date_str), '%d.%m.%Y')
     except:
         return None
+
 
 def clean_numeric(value):
     if pd.isna(value) or value == '':
@@ -321,6 +343,7 @@ def clean_numeric(value):
     except:
         return None
 
+
 def get_address_from_coordinates(lat, lon):
     """Получает адрес по координатам через DaData API"""
     try:
@@ -329,23 +352,23 @@ def get_address_from_coordinates(lat, lon):
             'Accept': 'application/json',
             'Authorization': f'Token {DADATA_API_KEY}'
         }
-        
+
         payload = {
             'lat': lat,
             'lon': lon,
             'count': 1,
             'radius_meters': 100
         }
-        
+
         response = requests.post(DADATA_API_URL, headers=headers, json=payload, timeout=10)
         response.raise_for_status()
-        
+
         data = response.json()
-        
+
         if data.get('suggestions') and len(data['suggestions']) > 0:
             suggestion = data['suggestions'][0]
             suggestion_data = suggestion.get('data', {})
-            
+
             return {
                 'address': suggestion.get('value', ''),
                 'full_address': suggestion.get('unrestricted_value', ''),
@@ -357,11 +380,12 @@ def get_address_from_coordinates(lat, lon):
                 'house': suggestion_data.get('house', ''),
                 'fias_id': suggestion_data.get('fias_id', None)
             }
-        
+
         return None
     except Exception as e:
         print(f"Ошибка при получении адреса по координатам: {e}")
         return None
+
 
 def get_or_create_address(lat, lon):
     """Получает существующий адрес или создает новый"""
@@ -399,29 +423,30 @@ def get_or_create_address(lat, lon):
     db.session.commit()
     return new_address
 
+
 def load_data_from_csv():
     if os.path.exists('data.csv'):
         df = pd.read_csv('data.csv', sep=';', encoding='utf-8')
-        
+
         # Счетчики для статистики
         updated_count = 0
         created_count = 0
-        
+
         for index, row in df.iterrows():
             try:
                 site_id = str(row.get('ID на сайте', ''))
                 if not site_id:
                     continue
-                
+
                 # Ищем существующую запись по site_id
                 existing_property = Property.query.filter_by(site_id=site_id).first()
-                
+
                 # Очищаем description и contacts от nan/None
                 def clean_text(val):
                     if pd.isna(val) or str(val).lower() in ['nan', 'none', '<na>']:
                         return ''
                     return str(val)
-                
+
                 # Подготавливаем данные для записи
                 property_data = {
                     'site_id': site_id,
@@ -438,8 +463,10 @@ def load_data_from_csv():
                     'facade': str(row.get('Фасад', '')),
                     'total_floors': int(row.get('Всего этажей', 0)) if pd.notna(row.get('Всего этажей')) else None,
                     'floor': int(row.get('Этаж', 0)) if pd.notna(row.get('Этаж')) else None,
-                    'rooms_count': int(row.get('Количество комнат', 0)) if pd.notna(row.get('Количество комнат')) else None,
-                    'isolated_rooms': int(row.get('Изолированные комнаты', 0)) if pd.notna(row.get('Изолированные комнаты')) else None,
+                    'rooms_count': int(row.get('Количество комнат', 0)) if pd.notna(
+                        row.get('Количество комнат')) else None,
+                    'isolated_rooms': int(row.get('Изолированные комнаты', 0)) if pd.notna(
+                        row.get('Изолированные комнаты')) else None,
                     'total_rooms': int(row.get('Всего комнат', 0)) if pd.notna(row.get('Всего комнат')) else None,
                     'price': clean_numeric(row.get('Цена')),
                     'min_price': clean_numeric(row.get('Минимальная цена')),
@@ -448,7 +475,8 @@ def load_data_from_csv():
                     'building': str(row.get('Строение', '')),
                     'letter': str(row.get('Литер', '')),
                     'landmark': str(row.get('Ориентир', '')),
-                    'construction_year': int(row.get('Год постройки', 0)) if pd.notna(row.get('Год постройки')) else None,
+                    'construction_year': int(row.get('Год постройки', 0)) if pd.notna(
+                        row.get('Год постройки')) else None,
                     'delivery_quarter': str(row.get('Квартал сдачи', '')),
                     'house_part': str(row.get('Часть дома', '')),
                     'house_readiness': str(row.get('Готовность дома', '')),
@@ -470,9 +498,12 @@ def load_data_from_csv():
                     'washing_machine': str(row.get('Стиральная машина', '')),
                     'longitude': clean_numeric(row.get('Долгота')),
                     'latitude': clean_numeric(row.get('Широта')),
-                    'clients_count': int(row.get('Количество клиентов', 0)) if pd.notna(row.get('Количество клиентов')) else None,
-                    'views_count': int(row.get('Количество просмотров', 0)) if pd.notna(row.get('Количество просмотров')) else None,
-                    'favorites_count': int(row.get('Количество в избранном', 0)) if pd.notna(row.get('Количество в избранном')) else None,
+                    'clients_count': int(row.get('Количество клиентов', 0)) if pd.notna(
+                        row.get('Количество клиентов')) else None,
+                    'views_count': int(row.get('Количество просмотров', 0)) if pd.notna(
+                        row.get('Количество просмотров')) else None,
+                    'favorites_count': int(row.get('Количество в избранном', 0)) if pd.notna(
+                        row.get('Количество в избранном')) else None,
                     'operation_id': int(row.get('ID операции', 0)) if pd.notna(row.get('ID операции')) else None,
                     'created_date': parse_date(row.get('Дата создания')),
                     'modified_date': parse_date(row.get('Дата изменения')),
@@ -481,13 +512,15 @@ def load_data_from_csv():
                     'update_date': parse_date(row.get('Дата обновления')),
                     'type_id': int(row.get('ID типа', 0)) if pd.notna(row.get('ID типа')) else None,
                     'subtype_id': int(row.get('ID подтипа', 0)) if pd.notna(row.get('ID подтипа')) else None,
-                    'main_type_id': int(row.get('ID основного типа', 0)) if pd.notna(row.get('ID основного типа')) else None,
+                    'main_type_id': int(row.get('ID основного типа', 0)) if pd.notna(
+                        row.get('ID основного типа')) else None,
                     'region_id': int(row.get('ID региона', 0)) if pd.notna(row.get('ID региона')) else None,
                     'district_id': int(row.get('ID района', 0)) if pd.notna(row.get('ID района')) else None,
                     'point_id': int(row.get('ID точки', 0)) if pd.notna(row.get('ID точки')) else None,
                     'district_area_id': int(row.get('ID округа', 0)) if pd.notna(row.get('ID округа')) else None,
                     'subpoint_id': int(row.get('ID подточки', 0)) if pd.notna(row.get('ID подточки')) else None,
-                    'microdistrict_id': int(row.get('ID микрорайона', 0)) if pd.notna(row.get('ID микрорайона')) else None,
+                    'microdistrict_id': int(row.get('ID микрорайона', 0)) if pd.notna(
+                        row.get('ID микрорайона')) else None,
                     'street_id': int(row.get('ID улицы', 0)) if pd.notna(row.get('ID улицы')) else None,
                     'complex_id': int(row.get('ID комплекса', 0)) if pd.notna(row.get('ID комплекса')) else None,
                     'material_id': int(row.get('ID материала', 0)) if pd.notna(row.get('ID материала')) else None,
@@ -500,20 +533,24 @@ def load_data_from_csv():
                     'heating_id': int(row.get('ID отопления', 0)) if pd.notna(row.get('ID отопления')) else None,
                     'sewage_id': int(row.get('ID канализации', 0)) if pd.notna(row.get('ID канализации')) else None,
                     'water_id': int(row.get('ID воды', 0)) if pd.notna(row.get('ID воды')) else None,
-                    'electricity_id': int(row.get('ID электричества', 0)) if pd.notna(row.get('ID электричества')) else None,
+                    'electricity_id': int(row.get('ID электричества', 0)) if pd.notna(
+                        row.get('ID электричества')) else None,
                     'requirement_id': int(row.get('ID требования', 0)) if pd.notna(row.get('ID требования')) else None,
                     'furniture_id': int(row.get('ID мебели', 0)) if pd.notna(row.get('ID мебели')) else None,
-                    'land_use_id': int(row.get('ID использования земли', 0)) if pd.notna(row.get('ID использования земли')) else None,
+                    'land_use_id': int(row.get('ID использования земли', 0)) if pd.notna(
+                        row.get('ID использования земли')) else None,
                     'status_id': int(row.get('ID статуса', 0)) if pd.notna(row.get('ID статуса')) else None,
-                    'balcony_glazing_id': int(row.get('ID остекления балкона', 0)) if pd.notna(row.get('ID остекления балкона')) else None,
-                    'loggia_glazing_id': int(row.get('ID остекления лоджии', 0)) if pd.notna(row.get('ID остекления лоджии')) else None,
+                    'balcony_glazing_id': int(row.get('ID остекления балкона', 0)) if pd.notna(
+                        row.get('ID остекления балкона')) else None,
+                    'loggia_glazing_id': int(row.get('ID остекления лоджии', 0)) if pd.notna(
+                        row.get('ID остекления лоджии')) else None,
                     'source_url': str(row.get('URL источника', '')),
                     'alternative_types': str(row.get('Альтернативные типы', '')),
                     'images': str(row.get('Изображения', '')),
                     'contacts': clean_text(row.get('Контакты', '')),
                     'price_per_sqm': clean_numeric(row.get('Цена за м²'))
                 }
-                
+
                 if existing_property:
                     # Обновляем существующую запись
                     for key, value in property_data.items():
@@ -524,14 +561,14 @@ def load_data_from_csv():
                     property_item = Property(**property_data)
                     db.session.add(property_item)
                     created_count += 1
-                    
+
             except Exception as e:
                 print(f"Error processing row {index}: {e}")
                 continue
-        
+
         db.session.commit()
         print(f"Обновлено записей: {updated_count}, создано новых: {created_count}")
-        
+
         # Связывание объектов с адресами по координатам (УДАЛЕНО)
         # print("Связывание объектов с адресами...")
         # properties_with_coords = Property.query.filter(
@@ -552,6 +589,7 @@ def load_data_from_csv():
         return True
     return False
 
+
 def download_and_update_data():
     """Скачивает CSV файл и обновляет базу данных"""
     try:
@@ -559,11 +597,11 @@ def download_and_update_data():
         url = "http://81.90.182.151:6050/api/download"
         response = requests.get(url, timeout=30)
         response.raise_for_status()
-        
+
         # Сохраняем во временный файл
         with open('data.csv', 'wb') as f:
             f.write(response.content)
-        
+
         # Загружаем данные в базу
         success = load_data_from_csv()
         return success
@@ -571,13 +609,16 @@ def download_and_update_data():
         print(f"Ошибка при скачивании данных: {e}")
         return False
 
+
 @app.route('/')
 def index():
     return redirect(url_for('admin'))
 
+
 @app.route('/admin')
 def admin():
     return render_template('admin.html')
+
 
 @app.route('/api/properties')
 def get_properties():
@@ -586,7 +627,7 @@ def get_properties():
     property_id = request.args.get('id', type=int)
     contacts_only = request.args.get('contacts_only', type=int)
     in_complex_only = request.args.get('in_complex_only', type=int)
-    
+
     # Если запрошен конкретный объект по ID
     if property_id:
         property_item = db.session.get(Property, property_id)
@@ -602,7 +643,7 @@ def get_properties():
                     'street': property_item.dadata_address.street,
                     'house': property_item.dadata_address.house
                 }
-            
+
             # Проверяем, был ли номер отправлен в КЦ
             sent_to_callcenter = False
             if property_item.contacts:
@@ -613,12 +654,12 @@ def get_properties():
                     sent_to_callcenter = Lead2CallLog.query.filter_by(phone=phone, status='success').first() is not None
             else:
                 sent_to_callcenter = False
-            
+
             # Найти связанный Яндекс-ЖК по address_id
             yandex_complex_name = None
             if property_item.yandex_link:
                 yandex_complex_name = property_item.yandex_link.yandex_complex_name
-            
+
             # Аналогичные квартиры (same_flats)
             same_flats = []
             if property_item.address_id and property_item.rooms_count:
@@ -635,14 +676,16 @@ def get_properties():
                         'id': flat.id,
                         'address': flat.address,
                         'images': flat.images,
-                        'antiznak_photos': [p.replace('\\', '/').replace('\\', '/') for p in json.loads(flat.antiznak_status.photos)] if getattr(flat, 'antiznak_status', None) and flat.antiznak_status.photos else [],
+                        'antiznak_photos': [p.replace('\\', '/').replace('\\', '/') for p in
+                                            json.loads(flat.antiznak_status.photos)] if getattr(flat, 'antiznak_status',
+                                                                                                None) and flat.antiznak_status.photos else [],
                         'price': flat.price,
                         'total_area': flat.total_area,
                         'floor': flat.floor,
                         'total_floors': flat.total_floors,
                         'rating': flat.rating_obj.rating
                     })
-            
+
             return jsonify({
                 'properties': [{
                     'id': property_item.id,
@@ -661,15 +704,21 @@ def get_properties():
                     'longitude': property_item.longitude,
                     'latitude': property_item.latitude,
                     'dadata_address': address_info,
-                    'antiznak_photos': [p.replace('\\', '/').replace('\\', '/') for p in json.loads(property_item.antiznak_status.photos)] if getattr(property_item, 'antiznak_status', None) and property_item.antiznak_status.photos else [],
+                    'antiznak_photos': [p.replace('\\', '/').replace('\\', '/') for p in
+                                        json.loads(property_item.antiznak_status.photos)] if getattr(property_item,
+                                                                                                     'antiznak_status',
+                                                                                                     None) and property_item.antiznak_status.photos else [],
                     'antiznak_status_status': getattr(property_item.antiznak_status, 'status', None),
                     'source_url': property_item.source_url,
                     'sent_to_callcenter': sent_to_callcenter,
                     'rating': property_item.rating_obj.rating if getattr(property_item, 'rating_obj', None) else None,
-                    'yandex_rating': property_item.yandex_rating_obj.yandex_rating if getattr(property_item, 'yandex_rating_obj', None) else None,
+                    'yandex_rating': property_item.yandex_rating_obj.yandex_rating if getattr(property_item,
+                                                                                              'yandex_rating_obj',
+                                                                                              None) else None,
                     'yandex_complex_name': yandex_complex_name,
                     'same_flats': same_flats,
-                    'generated_description': property_item.generated_description_obj.generated_description if getattr(property_item, 'generated_description_obj', None) else None
+                    'generated_description': property_item.generated_description_obj.generated_description if getattr(
+                        property_item, 'generated_description_obj', None) else None
                 }],
                 'total': 1,
                 'pages': 1,
@@ -678,7 +727,7 @@ def get_properties():
             })
         else:
             return jsonify({'properties': [], 'total': 0, 'pages': 0, 'current_page': 1, 'per_page': 1})
-    
+
     # Фильтры
     price_min = request.args.get('price_min', type=float)
     price_max = request.args.get('price_max', type=float)
@@ -692,7 +741,7 @@ def get_properties():
     rating_max = request.args.get('rating_max', type=int)
     yandex_rating_min = request.args.get('yandex_rating_min', type=int)
     yandex_rating_max = request.args.get('yandex_rating_max', type=int)
-    
+
     query = Property.query
     if in_complex_only:
         query = query.join(PropertyYandexLink)
@@ -719,7 +768,8 @@ def get_properties():
         )
     if yandex_complex:
         # Фильтруем объекты по связанному ЖК через таблицу связей
-        query = query.join(PropertyYandexLink).filter(PropertyYandexLink.yandex_complex_name.ilike(f'%{yandex_complex}%'))
+        query = query.join(PropertyYandexLink).filter(
+            PropertyYandexLink.yandex_complex_name.ilike(f'%{yandex_complex}%'))
     if rating_min is not None or rating_max is not None:
         query = query.outerjoin(PropertyRating, Property.id == PropertyRating.property_id)
         if rating_min is not None:
@@ -732,7 +782,7 @@ def get_properties():
             query = query.filter(PropertyYandexRating.yandex_rating >= yandex_rating_min)
         if yandex_rating_max is not None:
             query = query.filter(PropertyYandexRating.yandex_rating <= yandex_rating_max)
-    
+
     q = request.args.get('q', '').strip()
     if q:
         import re
@@ -755,12 +805,12 @@ def get_properties():
                     PropertyYandexLink.yandex_complex_name.ilike(f'%{q}%')
                 )
             ).outerjoin(PropertyYandexLink, Property.id == PropertyYandexLink.property_id)
-    
+
     # Сортировка по ID в порядке убывания (новые сверху)
     query = query.order_by(Property.id.desc())
-    
+
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
-    
+
     properties = []
     for prop in pagination.items:
         # Получаем информацию об адресе
@@ -774,7 +824,7 @@ def get_properties():
                 'street': prop.dadata_address.street,
                 'house': prop.dadata_address.house
             }
-        
+
         # Проверяем, был ли номер отправлен в КЦ
         sent_to_callcenter = False
         if prop.contacts:
@@ -785,12 +835,12 @@ def get_properties():
                 sent_to_callcenter = Lead2CallLog.query.filter_by(phone=phone, status='success').first() is not None
         else:
             sent_to_callcenter = False
-        
+
         # Найти связанный Яндекс-ЖК по address_id
         yandex_complex_name = None
         if prop.yandex_link:
             yandex_complex_name = prop.yandex_link.yandex_complex_name
-        
+
         # Аналогичные квартиры (same_flats)
         same_flats = []
         if prop.address_id and prop.rooms_count:
@@ -807,14 +857,16 @@ def get_properties():
                     'id': flat.id,
                     'address': flat.address,
                     'images': flat.images,
-                    'antiznak_photos': [p.replace('\\', '/').replace('\\', '/') for p in json.loads(flat.antiznak_status.photos)] if getattr(flat, 'antiznak_status', None) and flat.antiznak_status.photos else [],
+                    'antiznak_photos': [p.replace('\\', '/').replace('\\', '/') for p in
+                                        json.loads(flat.antiznak_status.photos)] if getattr(flat, 'antiznak_status',
+                                                                                            None) and flat.antiznak_status.photos else [],
                     'price': flat.price,
                     'total_area': flat.total_area,
                     'floor': flat.floor,
                     'total_floors': flat.total_floors,
                     'rating': flat.rating_obj.rating
                 })
-        
+
         properties.append({
             'id': prop.id,
             'title': prop.title or 'Без названия',
@@ -832,7 +884,9 @@ def get_properties():
             'longitude': prop.longitude,
             'latitude': prop.latitude,
             'dadata_address': address_info,
-            'antiznak_photos': [p.replace('\\', '/').replace('\\', '/') for p in json.loads(prop.antiznak_status.photos)] if getattr(prop, 'antiznak_status', None) and prop.antiznak_status.photos else [],
+            'antiznak_photos': [p.replace('\\', '/').replace('\\', '/') for p in
+                                json.loads(prop.antiznak_status.photos)] if getattr(prop, 'antiznak_status',
+                                                                                    None) and prop.antiznak_status.photos else [],
             'antiznak_status_status': getattr(prop.antiznak_status, 'status', None),
             'source_url': prop.source_url,
             'sent_to_callcenter': sent_to_callcenter,
@@ -840,9 +894,11 @@ def get_properties():
             'yandex_rating': prop.yandex_rating_obj.yandex_rating if getattr(prop, 'yandex_rating_obj', None) else None,
             'yandex_complex_name': yandex_complex_name,
             'same_flats': same_flats,
-            'generated_description': prop.generated_description_obj.generated_description if getattr(prop, 'generated_description_obj', None) else None
+            'generated_description': prop.generated_description_obj.generated_description if getattr(prop,
+                                                                                                     'generated_description_obj',
+                                                                                                     None) else None
         })
-    
+
     return jsonify({
         'properties': properties,
         'total': pagination.total,
@@ -851,10 +907,12 @@ def get_properties():
         'per_page': per_page
     })
 
+
 @app.route('/api/load-data')
 def load_data():
     success = load_data_from_csv()
     return jsonify({'success': success})
+
 
 @app.route('/api/stats')
 def get_stats():
@@ -899,11 +957,13 @@ def get_stats():
         'generated_description_count': generated_description_count
     })
 
+
 @app.route('/api/download-and-update')
 def download_and_update():
     """API endpoint для скачивания и обновления данных"""
     success = download_and_update_data()
     return jsonify({'success': success})
+
 
 @app.route('/api/geocode-property/<int:property_id>')
 def geocode_property(property_id):
@@ -912,19 +972,19 @@ def geocode_property(property_id):
         property_item = db.session.get(Property, property_id)
         if not property_item:
             return jsonify({'success': False, 'error': 'Объект не найден'})
-        
+
         if not property_item.latitude or not property_item.longitude:
             return jsonify({'success': False, 'error': 'Координаты не указаны'})
-        
+
         # Получаем или создаем адрес
         address = get_or_create_address(property_item.latitude, property_item.longitude)
         if not address:
             return jsonify({'success': False, 'error': 'Не удалось получить адрес'})
-        
+
         # Связываем объект с адресом
         property_item.address_id = address.id
         db.session.commit()
-        
+
         return jsonify({
             'success': True,
             'address': {
@@ -938,6 +998,7 @@ def geocode_property(property_id):
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
 
 @app.route('/api/geocode-all')
 def geocode_all():
@@ -981,6 +1042,7 @@ def geocode_all():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+
 @app.route('/api/antiznak/<int:property_id>', methods=['POST'])
 def antiznak_remove_watermarks(property_id):
     prop = db.session.get(Property, property_id)
@@ -1010,7 +1072,7 @@ def antiznak_remove_watermarks(property_id):
             os.makedirs(folder, exist_ok=True)
             local_photos = []
             for i, photo_url in enumerate(photos):
-                local_path = os.path.join(folder, f'{i+1}.jpg')
+                local_path = os.path.join(folder, f'{i + 1}.jpg')
                 try:
                     img = requests.get(photo_url, timeout=30)
                     with open(local_path, 'wb') as f:
@@ -1019,7 +1081,8 @@ def antiznak_remove_watermarks(property_id):
                 except Exception as e:
                     continue
             if not status_obj:
-                status_obj = AntiznakStatus(property_id=property_id, status='done', photos=json.dumps(local_photos), source_url=prop.source_url)
+                status_obj = AntiznakStatus(property_id=property_id, status='done', photos=json.dumps(local_photos),
+                                            source_url=prop.source_url)
                 db.session.add(status_obj)
             else:
                 status_obj.status = 'done'
@@ -1030,7 +1093,8 @@ def antiznak_remove_watermarks(property_id):
         elif status == 'error':
             err = data.get('text', 'Ошибка API')
             if not status_obj:
-                status_obj = AntiznakStatus(property_id=property_id, status='error', error=err, source_url=prop.source_url)
+                status_obj = AntiznakStatus(property_id=property_id, status='error', error=err,
+                                            source_url=prop.source_url)
                 db.session.add(status_obj)
             else:
                 status_obj.status = 'error'
@@ -1048,6 +1112,7 @@ def antiznak_remove_watermarks(property_id):
             time.sleep(3)
             cnt += 1
     return jsonify({'success': False, 'status': 'timeout', 'error': 'TimeOut Error!'})
+
 
 def import_residential_complexes(json_path='object.json'):
     try:
@@ -1084,6 +1149,7 @@ def import_residential_complexes(json_path='object.json'):
         print(f"Ошибка при импорте ЖК: {e}")
         return False
 
+
 @app.route('/api/import-complexes')
 def api_import_complexes():
     try:
@@ -1091,6 +1157,7 @@ def api_import_complexes():
         return jsonify({'success': True, 'message': 'Импорт ЖК завершен'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
 
 @app.route('/api/complexes')
 def get_complexes():
@@ -1147,9 +1214,11 @@ def get_complexes():
         'per_page': per_page
     })
 
+
 @app.route('/complexes')
 def complexes_page():
     return render_template('admin.html')
+
 
 @app.route('/api/geocode-all-complexes')
 def geocode_all_complexes():
@@ -1182,6 +1251,7 @@ def geocode_all_complexes():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+
 @app.route('/api/geocode-complex/<int:complex_id>')
 def geocode_complex(complex_id):
     try:
@@ -1206,22 +1276,23 @@ def geocode_complex(complex_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+
 @app.route('/api/link-properties-complexes')
 def link_properties_complexes():
     """API endpoint для связывания объектов и ЖК по адресу"""
     try:
         # Получаем все адреса, которые имеют связанные объекты и ЖК
         addresses_with_both = db.session.query(Address).join(Property).join(ResidentialComplex).distinct().all()
-        
+
         linked_data = []
-        
+
         for address in addresses_with_both:
             # Получаем все объекты с этим адресом
             properties = Property.query.filter_by(address_id=address.id).all()
-            
+
             # Получаем все ЖК с этим адресом
             complexes = ResidentialComplex.query.filter_by(address_id=address.id).all()
-            
+
             if properties and complexes:
                 linked_data.append({
                     'address': {
@@ -1265,7 +1336,7 @@ def link_properties_complexes():
                         'latitude': c.latitude
                     } for c in complexes]
                 })
-        
+
         return jsonify({
             'success': True,
             'linked_data': linked_data,
@@ -1273,6 +1344,7 @@ def link_properties_complexes():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
 
 def import_yandex_newbuildings():
     """Скачивает и импортирует данные из https://realty.yandex.ru/newbuildings.tsv в таблицу yandex_newbuildings"""
@@ -1300,6 +1372,7 @@ def import_yandex_newbuildings():
     db.session.commit()
     return True
 
+
 @app.route('/api/import-yandex-newbuildings')
 def api_import_yandex_newbuildings():
     try:
@@ -1308,10 +1381,12 @@ def api_import_yandex_newbuildings():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+
 @app.route('/api/yandex-newbuildings/regions')
 def get_yandex_regions():
     regions = db.session.query(YandexNewBuilding.region).distinct().order_by(YandexNewBuilding.region).all()
     return jsonify([r[0] for r in regions])
+
 
 @app.route('/api/yandex-newbuildings')
 def get_yandex_newbuildings():
@@ -1348,9 +1423,11 @@ def get_yandex_newbuildings():
         'per_page': per_page
     })
 
+
 @app.route('/yandex-newbuildings')
 def yandex_newbuildings_page():
     return render_template('yandex_newbuildings.html')
+
 
 @app.route('/api/yandex-geocode-region', methods=['POST'])
 def yandex_geocode_region():
@@ -1382,7 +1459,10 @@ def yandex_geocode_region():
                     break
             errors += 1
     db.session.commit()
-    return jsonify({'success': not STOP_GEOCODING_TASKS, 'processed': processed, 'errors': errors, 'total': len(buildings), 'stopped': STOP_GEOCODING_TASKS})
+    return jsonify(
+        {'success': not STOP_GEOCODING_TASKS, 'processed': processed, 'errors': errors, 'total': len(buildings),
+         'stopped': STOP_GEOCODING_TASKS})
+
 
 @app.route('/api/yandex-geocode-one/<int:building_id>', methods=['POST'])
 def yandex_geocode_one(building_id):
@@ -1398,6 +1478,7 @@ def yandex_geocode_one(building_id):
         return jsonify({'success': True, 'address_id': address.id})
     else:
         return jsonify({'success': False, 'error': 'Не удалось определить адрес'})
+
 
 def get_or_create_address_from_string(address_str):
     # Используем DaData API для поиска по строке адреса
@@ -1429,7 +1510,8 @@ def get_or_create_address_from_string(address_str):
                 if existing_address:
                     return existing_address
             # Фоллбек: поиск по строке
-            existing_address = Address.query.filter_by(dadata_full_address=suggestion.get('unrestricted_value', '')).first()
+            existing_address = Address.query.filter_by(
+                dadata_full_address=suggestion.get('unrestricted_value', '')).first()
             if existing_address:
                 return existing_address
             # Создаем новый адрес
@@ -1454,17 +1536,20 @@ def get_or_create_address_from_string(address_str):
         print(f"Ошибка при получении адреса по строке: {e}")
         return None
 
+
 @app.route('/api/stop-all-tasks', methods=['POST'])
 def stop_all_tasks():
     global STOP_GEOCODING_TASKS
     STOP_GEOCODING_TASKS = True
     return jsonify({'success': True, 'message': 'Все задачи остановлены'})
 
+
 @app.route('/api/reset-stop-flag', methods=['POST'])
 def reset_stop_flag():
     global STOP_GEOCODING_TASKS
     STOP_GEOCODING_TASKS = False
     return jsonify({'success': True})
+
 
 @app.route('/api/link-properties-yandex')
 def link_properties_yandex():
@@ -1527,6 +1612,7 @@ def link_properties_yandex():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+
 @app.route('/api/send-phone', methods=['POST'])
 def send_phone():
     data = request.get_json()
@@ -1555,12 +1641,14 @@ def send_phone():
         db.session.commit()
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
 @app.route('/api/yandex-linked-complexes')
 def get_yandex_linked_complexes():
     # Получить только те complex_name, у которых есть связанные объекты через таблицу связей
     complexes = db.session.query(PropertyYandexLink.yandex_complex_name).distinct().all()
     names = sorted({c[0] for c in complexes if c[0]})
     return jsonify(names)
+
 
 @app.route('/api/update-ratings', methods=['POST'])
 def update_ratings():
@@ -1601,6 +1689,7 @@ def update_ratings():
         db.session.add(PropertyRating(property_id=pid, rating=max_rating))
     db.session.commit()
     return jsonify({'success': True})
+
 
 @app.route('/api/update-yandex-ratings', methods=['POST'])
 def update_yandex_ratings():
@@ -1644,6 +1733,7 @@ def update_yandex_ratings():
     db.session.commit()
     return jsonify({'success': True})
 
+
 @app.route('/api/update-yandex-links', methods=['POST'])
 def update_yandex_links():
     # Удаляем старые связи
@@ -1665,6 +1755,7 @@ def update_yandex_links():
     db.session.commit()
     return jsonify({'success': True, 'links_created': len(seen)})
 
+
 @app.route('/api/objects-autocomplete')
 def objects_autocomplete():
     q = request.args.get('q', '').strip()
@@ -1679,7 +1770,8 @@ def objects_autocomplete():
     addresses = Property.query.filter(Property.address.ilike(f'%{q}%')).limit(5).all()
     results['address'] = list({p.address for p in addresses if p.address})
     # Поиск по ЖК
-    complexes = db.session.query(PropertyYandexLink.yandex_complex_name).filter(PropertyYandexLink.yandex_complex_name.ilike(f'%{q}%')).limit(5).all()
+    complexes = db.session.query(PropertyYandexLink.yandex_complex_name).filter(
+        PropertyYandexLink.yandex_complex_name.ilike(f'%{q}%')).limit(5).all()
     results['complex'] = [c[0] for c in complexes if c[0]]
     # Поиск по телефону
     import re
@@ -1692,6 +1784,7 @@ def objects_autocomplete():
     results['phone'] = list(phones)
     return jsonify(results)
 
+
 @app.route('/api/generate-description/<int:property_id>', methods=['POST'])
 def generate_description(property_id):
     """API endpoint для генерации описания объекта недвижимости"""
@@ -1699,15 +1792,15 @@ def generate_description(property_id):
         property_item = db.session.get(Property, property_id)
         if not property_item:
             return jsonify({'success': False, 'error': 'Объект не найден'})
-        
+
         if not property_item.content or property_item.content.strip() == '':
             return jsonify({'success': False, 'error': 'Нет подробного описания для генерации'})
-        
+
         # Генерируем описание
         generated_text = generate_property_description(property_item.content)
         if not generated_text:
             return jsonify({'success': False, 'error': 'Не удалось сгенерировать описание'})
-        
+
         # Сохраняем или обновляем в базе
         existing_description = PropertyGeneratedDescription.query.filter_by(property_id=property_id).first()
         if existing_description:
@@ -1719,45 +1812,93 @@ def generate_description(property_id):
                 generated_description=generated_text
             )
             db.session.add(new_description)
-        
+
         db.session.commit()
-        
+
         return jsonify({
             'success': True,
             'generated_description': generated_text
         })
-        
+
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+class TimeoutException(Exception):
+    pass
+
+
+def timeout(seconds, error_message="Timeout"):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            result = [TimeoutException(error_message)]
+
+            def target():
+                try:
+                    result[0] = func(*args, **kwargs)
+                except Exception as e:
+                    result[0] = e
+
+            thread = threading.Thread(target=target)
+            thread.daemon = True
+            thread.start()
+            thread.join(seconds)
+            if thread.is_alive():
+                raise TimeoutException(error_message)
+            if isinstance(result[0], Exception):
+                raise result[0]
+            return result[0]
+
+        return wrapper
+
+    return decorator
+
+
+@timeout(10)
+def get_response(prompt):
+    client = Client()
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        web_search=False,
+        ignore_stream=True
+    )
+    if re.search('discord.gg', response.choices[0].message.content) or re.search('я не могу помочь',
+                                                                                 response.choices[0].message.content):
+        return None
+
+    return response
+
 
 def generate_property_description(content):
     """Генерирует описание объекта недвижимости через gpt4free"""
     if not content or content.strip() == '':
         return None
-    
+
     prompt = f"""На основе описания {content} создай свое уникальное описание, убери информацию о том что это собственник, и добавь призыв к действию если его нету."""
-    
+
     try:
-        # Временно возвращаем заглушку вместо реальной генерации
-        return f"Сгенерированное описание для: {content[:100]}..."
-        # Используем бесплатную модель через gpt4free
-        # response = g4f.ChatCompletion.create(
-        #     model="gpt-3.5-turbo",
-        #     messages=[{"role": "user", "content": prompt}],
-        #     max_tokens=500
-        # )
-        # return response
+        try:
+            response = get_response(prompt)
+            if not response:
+                return generate_property_description(content)
+
+            return response.choices[0].message.content
+        except Exception as e:
+            print(e)
+            return generate_property_description(content)
     except Exception as e:
         print(f"Ошибка при генерации описания: {e}")
         return None
+
 
 if __name__ == '__main__':
     with app.app_context():
         # Удаляем все таблицы и создаем заново
         db.create_all()
-        
+
         # Автоматически загружаем данные при первом запуске
         if Property.query.count() == 0:
             load_data_from_csv()
-    
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+
+    app.run(debug=True, host='0.0.0.0', port=5000)

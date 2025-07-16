@@ -18,6 +18,7 @@ from sqlalchemy import or_
 from g4f.client import Client
 from io import StringIO
 import traceback
+import urllib.parse
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///real_estate.db'
@@ -3317,6 +3318,348 @@ def get_price_statistics():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/complex-properties/<complex_name>')
+def get_complex_properties(complex_name):
+    """Получить все квартиры конкретного жилого комплекса"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    
+    # Декодируем название комплекса из URL
+    complex_name = urllib.parse.unquote(complex_name)
+    
+    # Получаем квартиры для данного ЖК
+    query = Property.query.join(PropertyYandexLink).filter(
+        PropertyYandexLink.yandex_complex_name == complex_name
+    )
+    
+    # Подсчитываем общее количество
+    total = query.count()
+    pages = (total + per_page - 1) // per_page
+    
+    # Применяем пагинацию
+    properties = query.offset((page - 1) * per_page).limit(per_page).all()
+    
+    # Формируем ответ
+    properties_data = []
+    for prop in properties:
+        # Получаем информацию об адресе
+        address_info = None
+        if prop.dadata_address:
+            address_info = {
+                'id': prop.dadata_address.id,
+                'address': prop.dadata_address.dadata_address,
+                'full_address': prop.dadata_address.dadata_full_address,
+                'city': prop.dadata_address.city,
+                'street': prop.dadata_address.street,
+                'house': prop.dadata_address.house
+            }
+        
+        # Проверяем, был ли номер отправлен в КЦ
+        sent_to_callcenter = False
+        if prop.contacts:
+            import re
+            phone_match = re.search(r'(\+?\d{10,15})', prop.contacts)
+            if phone_match:
+                phone = phone_match.group(1)
+                sent_to_callcenter = Lead2CallLog.query.filter_by(phone=phone, status='success').first() is not None
+        
+        properties_data.append({
+            'id': prop.id,
+            'title': prop.title or 'Без названия',
+            'address': prop.address or 'Адрес не указан',
+            'price': prop.price,
+            'total_area': prop.total_area,
+            'rooms_count': prop.rooms_count,
+            'floor': prop.floor,
+            'total_floors': prop.total_floors,
+            'construction_year': prop.construction_year,
+            'content': prop.content or '',
+            'images': prop.images or '',
+            'contacts': prop.contacts or '',
+            'price_per_sqm': prop.price_per_sqm,
+            'longitude': prop.longitude,
+            'latitude': prop.latitude,
+            'dadata_address': address_info,
+            'antiznak_photos': [p.replace('\\', '/').replace('\\', '/') for p in
+                                json.loads(prop.antiznak_status.photos)] if getattr(prop, 'antiznak_status', None) and prop.antiznak_status.photos else [],
+            'antiznak_status_status': getattr(prop.antiznak_status, 'status', None),
+            'source_url': prop.source_url,
+            'sent_to_callcenter': sent_to_callcenter,
+            'rating': prop.rating_obj.rating if getattr(prop, 'rating_obj', None) else None,
+            'yandex_rating': prop.yandex_rating_obj.yandex_rating if getattr(prop, 'yandex_rating_obj', None) else None,
+            'generated_description': prop.generated_description_obj.generated_description if getattr(prop, 'generated_description_obj', None) else None
+        })
+    
+    return jsonify({
+        'complex_name': complex_name,
+        'properties': properties_data,
+        'total': total,
+        'pages': pages,
+        'current_page': page,
+        'per_page': per_page
+    })
+
+
+@app.route('/api/complex-info/<complex_name>')
+def get_complex_info(complex_name):
+    """Получить информацию о конкретном жилом комплексе"""
+    # Декодируем название комплекса из URL
+    import urllib.parse
+    complex_name = urllib.parse.unquote(complex_name)
+    
+    # Получаем информацию о ЖК из Яндекс-новостроек
+    yandex_complex = YandexNewBuilding.query.filter_by(complex_name=complex_name).first()
+    
+    # Получаем статистику по квартирам
+    properties_query = Property.query.join(PropertyYandexLink).filter(
+        PropertyYandexLink.yandex_complex_name == complex_name
+    )
+    
+    total_properties = properties_query.count()
+    
+    # Статистика по комнатам
+    rooms_stats = db.session.query(
+        Property.rooms_count,
+        db.func.count(Property.id).label('count'),
+        db.func.avg(Property.price).label('avg_price'),
+        db.func.min(Property.price).label('min_price'),
+        db.func.max(Property.price).label('max_price')
+    ).join(PropertyYandexLink).filter(
+        PropertyYandexLink.yandex_complex_name == complex_name,
+        Property.rooms_count.isnot(None)
+    ).group_by(Property.rooms_count).all()
+    
+    # Статистика по цене
+    price_stats = db.session.query(
+        db.func.avg(Property.price).label('avg_price'),
+        db.func.min(Property.price).label('min_price'),
+        db.func.max(Property.price).label('max_price'),
+        db.func.avg(Property.price_per_sqm).label('avg_price_per_sqm')
+    ).join(PropertyYandexLink).filter(
+        PropertyYandexLink.yandex_complex_name == complex_name,
+        Property.price.isnot(None)
+    ).first()
+    
+    # Получаем фотографии ЖК
+    complex_photos = []
+    if yandex_complex and yandex_complex.address_id:
+        # Ищем ЖК с фотографиями по адресу
+        complex_obj = ResidentialComplex.query.filter_by(address_id=yandex_complex.address_id).first()
+        if complex_obj and complex_obj.photo_url:
+            complex_photos.append({
+                'id': complex_obj.id,
+                'photo_path': complex_obj.photo_url,
+                'photo_url': complex_obj.photo_url,
+                'title': f'Фото ЖК {complex_obj.name}',
+                'is_main': True
+            })
+    
+    return jsonify({
+        'complex_name': complex_name,
+        'yandex_info': {
+            'id': yandex_complex.id if yandex_complex else None,
+            'region': yandex_complex.region if yandex_complex else None,
+            'complex_id': yandex_complex.complex_id if yandex_complex else None,
+            'queue': yandex_complex.queue if yandex_complex else None,
+            'ready_date': yandex_complex.ready_date if yandex_complex else None,
+            'address': yandex_complex.address if yandex_complex else None,
+            'url': yandex_complex.url if yandex_complex else None,
+            'dadata_address': yandex_complex.dadata_address.dadata_address if yandex_complex and yandex_complex.dadata_address else None
+        },
+        'statistics': {
+            'total_properties': total_properties,
+            'rooms_stats': [
+                {
+                    'rooms_count': stat.rooms_count,
+                    'count': stat.count,
+                    'avg_price': float(stat.avg_price) if stat.avg_price else None,
+                    'min_price': float(stat.min_price) if stat.min_price else None,
+                    'max_price': float(stat.max_price) if stat.max_price else None
+                }
+                for stat in rooms_stats
+            ],
+            'price_stats': {
+                'avg_price': float(price_stats.avg_price) if price_stats and price_stats.avg_price else None,
+                'min_price': float(price_stats.min_price) if price_stats and price_stats.min_price else None,
+                'max_price': float(price_stats.max_price) if price_stats and price_stats.max_price else None,
+                'avg_price_per_sqm': float(price_stats.avg_price_per_sqm) if price_stats and price_stats.avg_price_per_sqm else None
+            }
+        },
+        'photos': complex_photos
+    })
+
+
+@app.route('/api/complexes-with-properties')
+def get_complexes_with_properties():
+    """Получить все жилые комплексы с их квартирами"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    search = request.args.get('search', '', type=str)
+    region = request.args.get('region', '', type=str)
+    
+    # Получаем все уникальные названия ЖК из связей
+    query = db.session.query(PropertyYandexLink.yandex_complex_name).distinct()
+    
+    if search:
+        query = query.filter(PropertyYandexLink.yandex_complex_name.ilike(f'%{search}%'))
+    
+    # Получаем общее количество ЖК
+    total_complexes = query.count()
+    pages = (total_complexes + per_page - 1) // per_page
+    
+    # Применяем пагинацию
+    complex_names = query.offset((page - 1) * per_page).limit(per_page).all()
+    
+    complexes_data = []
+    
+    for (complex_name,) in complex_names:
+        if not complex_name:
+            continue
+            
+        # Получаем информацию о ЖК из Яндекс-новостроек
+        yandex_complex = YandexNewBuilding.query.filter_by(complex_name=complex_name).first()
+        
+        # Получаем квартиры для данного ЖК (ограничиваем количество для производительности)
+        properties_query = Property.query.join(PropertyYandexLink).filter(
+            PropertyYandexLink.yandex_complex_name == complex_name
+        )
+        
+        total_properties = properties_query.count()
+        
+        # Получаем только первые 10 квартир для предварительного просмотра
+        properties = properties_query.limit(10).all()
+        
+        # Статистика по комнатам
+        rooms_stats = db.session.query(
+            Property.rooms_count,
+            db.func.count(Property.id).label('count'),
+            db.func.avg(Property.price).label('avg_price'),
+            db.func.min(Property.price).label('min_price'),
+            db.func.max(Property.price).label('max_price')
+        ).join(PropertyYandexLink).filter(
+            PropertyYandexLink.yandex_complex_name == complex_name,
+            Property.rooms_count.isnot(None)
+        ).group_by(Property.rooms_count).all()
+        
+        # Статистика по цене
+        price_stats = db.session.query(
+            db.func.avg(Property.price).label('avg_price'),
+            db.func.min(Property.price).label('min_price'),
+            db.func.max(Property.price).label('max_price'),
+            db.func.avg(Property.price_per_sqm).label('avg_price_per_sqm')
+        ).join(PropertyYandexLink).filter(
+            PropertyYandexLink.yandex_complex_name == complex_name,
+            Property.price.isnot(None)
+        ).first()
+        
+        # Получаем фотографии ЖК
+        complex_photos = []
+        if yandex_complex and yandex_complex.address_id:
+            complex_obj = ResidentialComplex.query.filter_by(address_id=yandex_complex.address_id).first()
+            if complex_obj and complex_obj.photo_url:
+                complex_photos.append({
+                    'id': complex_obj.id,
+                    'photo_path': complex_obj.photo_url,
+                    'photo_url': complex_obj.photo_url,
+                    'title': f'Фото ЖК {complex_obj.name}',
+                    'is_main': True
+                })
+        
+        # Формируем данные квартир
+        properties_data = []
+        for prop in properties:
+            # Получаем информацию об адресе
+            address_info = None
+            if prop.dadata_address:
+                address_info = {
+                    'id': prop.dadata_address.id,
+                    'address': prop.dadata_address.dadata_address,
+                    'full_address': prop.dadata_address.dadata_full_address,
+                    'city': prop.dadata_address.city,
+                    'street': prop.dadata_address.street,
+                    'house': prop.dadata_address.house
+                }
+            
+            # Проверяем, был ли номер отправлен в КЦ
+            sent_to_callcenter = False
+            if prop.contacts:
+                import re
+                phone_match = re.search(r'(\+?\d{10,15})', prop.contacts)
+                if phone_match:
+                    phone = phone_match.group(1)
+                    sent_to_callcenter = Lead2CallLog.query.filter_by(phone=phone, status='success').first() is not None
+            
+            properties_data.append({
+                'id': prop.id,
+                'title': prop.title or 'Без названия',
+                'address': prop.address or 'Адрес не указан',
+                'price': prop.price,
+                'total_area': prop.total_area,
+                'rooms_count': prop.rooms_count,
+                'floor': prop.floor,
+                'total_floors': prop.total_floors,
+                'construction_year': prop.construction_year,
+                'content': prop.content or '',
+                'images': prop.images or '',
+                'contacts': prop.contacts or '',
+                'price_per_sqm': prop.price_per_sqm,
+                'longitude': prop.longitude,
+                'latitude': prop.latitude,
+                'dadata_address': address_info,
+                'antiznak_photos': [p.replace('\\', '/').replace('\\', '/') for p in
+                                    json.loads(prop.antiznak_status.photos)] if getattr(prop, 'antiznak_status', None) and prop.antiznak_status.photos else [],
+                'antiznak_status_status': getattr(prop.antiznak_status, 'status', None),
+                'source_url': prop.source_url,
+                'sent_to_callcenter': sent_to_callcenter,
+                'rating': prop.rating_obj.rating if getattr(prop, 'rating_obj', None) else None,
+                'yandex_rating': prop.yandex_rating_obj.yandex_rating if getattr(prop, 'yandex_rating_obj', None) else None,
+                'generated_description': prop.generated_description_obj.generated_description if getattr(prop, 'generated_description_obj', None) else None
+            })
+        
+        complexes_data.append({
+            'complex_name': complex_name,
+            'yandex_info': {
+                'id': yandex_complex.id if yandex_complex else None,
+                'region': yandex_complex.region if yandex_complex else None,
+                'complex_id': yandex_complex.complex_id if yandex_complex else None,
+                'queue': yandex_complex.queue if yandex_complex else None,
+                'ready_date': yandex_complex.ready_date if yandex_complex else None,
+                'address': yandex_complex.address if yandex_complex else None,
+                'url': yandex_complex.url if yandex_complex else None,
+                'dadata_address': yandex_complex.dadata_address.dadata_address if yandex_complex and yandex_complex.dadata_address else None
+            },
+            'statistics': {
+                'total_properties': total_properties,
+                'rooms_stats': [
+                    {
+                        'rooms_count': stat.rooms_count,
+                        'count': stat.count,
+                        'avg_price': float(stat.avg_price) if stat.avg_price else None,
+                        'min_price': float(stat.min_price) if stat.min_price else None,
+                        'max_price': float(stat.max_price) if stat.max_price else None
+                    }
+                    for stat in rooms_stats
+                ],
+                'price_stats': {
+                    'avg_price': float(price_stats.avg_price) if price_stats and price_stats.avg_price else None,
+                    'min_price': float(price_stats.min_price) if price_stats and price_stats.min_price else None,
+                    'max_price': float(price_stats.max_price) if price_stats and price_stats.max_price else None,
+                    'avg_price_per_sqm': float(price_stats.avg_price_per_sqm) if price_stats and price_stats.avg_price_per_sqm else None
+                }
+            },
+            'photos': complex_photos,
+            'properties': properties_data
+        })
+    
+    return jsonify({
+        'complexes': complexes_data,
+        'total': total_complexes,
+        'pages': pages,
+        'current_page': page,
+        'per_page': per_page
+    })
 
 
 if __name__ == '__main__':

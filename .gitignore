@@ -1,10 +1,2 @@
-# Удалите большие файлы из истории
-java -jar bfg-1.14.0.jar --delete-files real_estate.db
-java -jar bfg-1.14.0.jar --delete-files apartments.json
-
-# Очистите мусор и обновите ссылки
-git reflog expire --expire=now --all
-git gc --prune=now --aggressive
-
-# Сделайте форсированный push (перезапишет историю на GitHub)
-git push --force 
+instance/real_estate.db
+trendagent/krd/apartments.json 

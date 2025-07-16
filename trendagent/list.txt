@@ -1,0 +1,9 @@
+https://dataout.trendagent.ru/krasnodar/blocks.json
+https://dataout.trendagent.ru/krasnodar/builders.json
+https://dataout.trendagent.ru/krasnodar/regions.json
+https://dataout.trendagent.ru/krasnodar/subways.json
+https://dataout.trendagent.ru/krasnodar/rooms.json
+https://dataout.trendagent.ru/krasnodar/finishings.json
+https://dataout.trendagent.ru/krasnodar/buildingtypes.json
+https://dataout.trendagent.ru/krasnodar/buildings.json
+https://dataout.trendagent.ru/krasnodar/apartments.json

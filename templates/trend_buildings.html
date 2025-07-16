@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+
+{% block bulk_actions %}
+    <div class="dropdown me-2">
+        <button class="btn btn-outline-light dropdown-toggle" type="button" id="bulkActionsDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fas fa-tasks me-1"></i>Массовые действия
+        </button>
+        <ul class="dropdown-menu" aria-labelledby="bulkActionsDropdown">
+            <li><a class="dropdown-item" href="#" onclick="importTrendagent()"><i class="fas fa-upload me-1"></i>Импортировать TrendAgent</a></li>
+            <li><a class="dropdown-item" href="#" onclick="geocodeAllBuildings()"><i class="fas fa-map-marker me-1"></i>Геокодировать все здания</a></li>
+        </ul>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>Здания (Trend Buildings)</h2>
+    <div class="d-flex justify-content-end mb-3">
+        <button class="btn btn-success" id="import-trendagent-btn">Импортировать TrendAgent</button>
+    </div>
+    <div class="mb-3">
+        <input type="text" id="search" class="form-control" placeholder="Поиск по названию или улице...">
+    </div>
+    <table class="table table-bordered table-hover" id="buildings-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Название</th>
+                <th>Улица</th>
+                <th>Адрес (DaData)</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <nav>
+        <ul class="pagination" id="pagination"></ul>
+    </nav>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+let currentPage = 1;
+let lastPage = 1;
+let search = '';
+
+function loadBuildings(page = 1) {
+    console.log('Запрос к API с параметрами:', {page: page, search: search});
+    $.get('/api/trend-buildings', {page: page, search: search})
+        .done(function(data) {
+            console.log('Получены данные:', data);
+        const tbody = $('#buildings-table tbody');
+        tbody.empty();
+        data.items.forEach(function(b) {
+            let addressHtml = b.dadata_address ?
+                `<div><b>${b.dadata_address.address}</b></div><div class='address-info'>${b.dadata_address.full_address || ''}</div>` :
+                '<span class="text-danger">Не определён</span>';
+            tbody.append(`
+                <tr>
+                    <td>${b.id}</td>
+                    <td>${b.name || ''}</td>
+                    <td>${b.address_street || ''}</td>
+                    <td>${addressHtml}</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary geocode-btn" data-id="${b.id}">Определить адрес</button>
+                    </td>
+                </tr>
+            `);
+        });
+        // Пагинация
+        currentPage = data.current_page;
+        lastPage = data.pages;
+        const pag = $('#pagination');
+        pag.empty();
+        for (let i = 1; i <= lastPage; i++) {
+            pag.append(`<li class="page-item${i === currentPage ? ' active' : ''}"><a class="page-link" href="#">${i}</a></li>`);
+        }
+    })
+    .fail(function(xhr, status, error) {
+        console.error('Ошибка загрузки данных:', error);
+        $('#buildings-table tbody').html('<tr><td colspan="5" class="text-center text-danger">Ошибка загрузки данных: ' + error + '</td></tr>');
+    });
+}
+
+// Функции для массовых действий
+function importTrendagent() {
+    if (!confirm('Импортировать данные из TrendAgent? Все старые данные будут удалены.')) return;
+    const btn = $('#import-trendagent-btn');
+    btn.prop('disabled', true).text('Импорт...');
+    $.post('/api/import-trendagent', function(resp) {
+        if (resp.success) {
+            alert('Импорт завершён!');
+            loadBuildings();
+        } else {
+            alert('Ошибка: ' + (resp.error || 'Не удалось импортировать'));
+        }
+        btn.prop('disabled', false).text('Импортировать TrendAgent');
+    });
+}
+
+function geocodeAllBuildings() {
+    if (!confirm('Определить адреса для всех зданий? Это может занять некоторое время.')) return;
+    $.post('/api/geocode-all-trend-buildings', function(resp) {
+        if (resp.success) {
+            alert(`Обработано: ${resp.processed}, ошибок: ${resp.errors}`);
+            loadBuildings();
+        } else {
+            alert('Ошибка: ' + (resp.error || 'Не удалось определить адреса'));
+        }
+    });
+}
+
+$(document).ready(function() {
+    console.log('jQuery загружен, DOM готов');
+    // Обработчики событий
+    $(document).on('click', '.geocode-btn', function() {
+        const id = $(this).data('id');
+        const btn = $(this);
+        btn.prop('disabled', true).text('Определение...');
+        $.post(`/api/geocode-trend-building/${id}`, function(resp) {
+            if (resp.success) {
+                btn.closest('tr').find('td').eq(3).html(`<div><b>${resp.address.address}</b></div><div class='address-info'>${resp.address.full_address || ''}</div>`);
+            } else {
+                alert('Ошибка: ' + (resp.error || 'Не удалось определить адрес'));
+            }
+            btn.prop('disabled', false).text('Определить адрес');
+        });
+    });
+
+    $(document).on('click', '#pagination .page-link', function(e) {
+        e.preventDefault();
+        const page = parseInt($(this).text());
+        if (page !== currentPage) {
+            loadBuildings(page);
+        }
+    });
+
+    $('#search').on('input', function() {
+        search = $(this).val();
+        loadBuildings(1);
+    });
+
+    $('#import-trendagent-btn').on('click', function() {
+        const btn = $(this);
+        btn.prop('disabled', true).text('Импорт...');
+        $.post('/api/import-trendagent', function(resp) {
+            if (resp.success) {
+                alert('Импорт завершён!');
+                loadBuildings();
+            } else {
+                alert('Ошибка: ' + (resp.error || 'Не удалось импортировать'));
+            }
+            btn.prop('disabled', false).text('Импортировать TrendAgent');
+        });
+    });
+
+    // Загружаем данные при загрузке страницы
+    console.log('Загружаем данные...');
+    loadBuildings();
+});
+</script>
+{% endblock %} 

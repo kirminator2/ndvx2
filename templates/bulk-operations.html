@@ -1,0 +1,405 @@
+{% extends 'base.html' %}
+
+{% block title %}Массовые операции{% endblock %}
+
+{% block head %}
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .operation-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            transition: transform 0.2s;
+        }
+        .operation-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .operation-icon {
+            font-size: 2em;
+            margin-bottom: 15px;
+            color: #007bff;
+        }
+        .operation-title {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .operation-description {
+            color: #6c757d;
+            margin-bottom: 15px;
+        }
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .stats-card h5 {
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }
+        .stats-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 0;
+        }
+        .loading {
+            display: none;
+        }
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            min-width: 300px;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h2 class="mb-4">
+                <i class="fas fa-cogs me-2"></i>Массовые операции
+            </h2>
+            
+            <!-- Статистика -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h5>Всего объектов</h5>
+                        <h3 id="total-properties">
+                            <span class="spinner-border spinner-border-sm text-light" role="status"></span>
+                        </h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h5>С контактами</h5>
+                        <h3 id="phone-count">
+                            <span class="spinner-border spinner-border-sm text-light" role="status"></span>
+                        </h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h5>С адресами</h5>
+                        <h3 id="with-address">
+                            <span class="spinner-border spinner-border-sm text-light" role="status"></span>
+                        </h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h5>В ЖК</h5>
+                        <h3 id="in-complex">
+                            <span class="spinner-border spinner-border-sm text-light" role="status"></span>
+                        </h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Операции -->
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fas fa-download"></i>
+                            </div>
+                            <div class="operation-title">Скачать и обновить данные</div>
+                            <div class="operation-description">
+                                Загружает новые данные из CSV файла и обновляет существующие записи
+                            </div>
+                            <button type="button" class="btn btn-primary" onclick="downloadAndUpdateData(event)">
+                                <i class="fas fa-download me-1"></i>Скачать и обновить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fas fa-map-marker"></i>
+                            </div>
+                            <div class="operation-title">Массовое геокодирование</div>
+                            <div class="operation-description">
+                                Геокодирует все объекты, у которых есть координаты, но нет адреса
+                            </div>
+                            <button type="button" class="btn btn-info" onclick="geocodeAllProperties(event)">
+                                <i class="fas fa-map-marker me-1"></i>Геокодировать все
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fas fa-link"></i>
+                            </div>
+                            <div class="operation-title">Обновить связи с ЖК</div>
+                            <div class="operation-description">
+                                Создает связи объектов недвижимости с жилыми комплексами Яндекс.Недвижимость
+                            </div>
+                            <button type="button" class="btn btn-success" onclick="updateYandexLinks(event)">
+                                <i class="fas fa-link me-1"></i>Обновить связи
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fas fa-star"></i>
+                            </div>
+                            <div class="operation-title">Обновить рейтинги</div>
+                            <div class="operation-description">
+                                Обновляет рейтинги объектов недвижимости на основе различных критериев
+                            </div>
+                            <button type="button" class="btn btn-warning" onclick="updateRatings(event)">
+                                <i class="fas fa-star me-1"></i>Обновить рейтинги
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fas fa-file-csv"></i>
+                            </div>
+                            <div class="operation-title">Экспорт в CSV</div>
+                            <div class="operation-description">
+                                Экспортирует все объекты недвижимости в CSV файл с полной информацией
+                            </div>
+                            <button type="button" class="btn btn-secondary" onclick="exportToCSV(event)">
+                                <i class="fas fa-file-csv me-1"></i>Экспорт CSV
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fas fa-upload"></i>
+                            </div>
+                            <div class="operation-title">Импорт данных</div>
+                            <div class="operation-description">
+                                Импортирует данные из различных источников (ЖК, Яндекс.Недвижимость)
+                            </div>
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-outline-primary" onclick="importComplexes()">
+                                    <i class="fas fa-building me-1"></i>ЖК
+                                </button>
+                                <button type="button" class="btn btn-outline-success" onclick="importYandexNewbuildings()">
+                                    <i class="fab fa-yandex me-1"></i>Яндекс
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast уведомления -->
+<div id="toast-container"></div>
+
+<script>
+// Загрузка статистики
+async function loadStats() {
+    try {
+        const response = await fetch('/api/stats');
+        const data = await response.json();
+        
+        document.getElementById('total-properties').textContent = data.total_properties || 0;
+        document.getElementById('phone-count').textContent = data.phone_count || 0;
+        document.getElementById('with-address').textContent = data.with_address || 0;
+        document.getElementById('in-complex').textContent = data.in_complex || 0;
+    } catch (error) {
+        console.error('Ошибка загрузки статистики:', error);
+    }
+}
+
+// Показ уведомлений
+function showToast(message, type = 'info') {
+    const toastContainer = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `alert alert-${type} alert-dismissible fade show toast`;
+    toast.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    toastContainer.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.remove();
+    }, 5000);
+}
+
+// Массовые операции
+async function downloadAndUpdateData(event) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Загрузка...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/download-and-update');
+        const result = await response.json();
+        if (result.success) {
+            showToast('Данные успешно загружены и обновлены!', 'success');
+            loadStats(); // Обновляем статистику
+        } else {
+            showToast('Ошибка загрузки данных', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка загрузки данных', 'danger');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+async function geocodeAllProperties(event) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Геокодирование...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/geocode-all', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showToast(`Геокодирование завершено! Обработано ${result.processed} объектов.`, 'success');
+            loadStats(); // Обновляем статистику
+        } else {
+            showToast('Ошибка геокодирования', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка геокодирования', 'danger');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+async function updateYandexLinks(event) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Обновление связей...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/update-yandex-links', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showToast(`Связи обновлены! Создано ${result.links_created} связей.`, 'success');
+            loadStats(); // Обновляем статистику
+        } else {
+            showToast('Ошибка обновления связей', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка обновления связей', 'danger');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+async function updateRatings(event) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Обновление рейтингов...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/update-ratings', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showToast(`Рейтинги обновлены! Обработано ${result.ratings_updated} объектов.`, 'success');
+        } else {
+            showToast('Ошибка обновления рейтингов', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка обновления рейтингов', 'danger');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+async function exportToCSV(event) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Экспорт...';
+    button.disabled = true;
+    
+    try {
+        // Создаем временную ссылку для скачивания
+        const link = document.createElement('a');
+        link.href = '/export-properties-csv';
+        link.download = `properties_export_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        showToast('Экспорт CSV завершен!', 'success');
+    } catch (error) {
+        showToast('Ошибка экспорта CSV', 'danger');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+async function importComplexes() {
+    try {
+        const response = await fetch('/api/import-complexes');
+        const result = await response.json();
+        if (result.success) {
+            showToast('ЖК успешно импортированы!', 'success');
+            loadStats(); // Обновляем статистику
+        } else {
+            showToast('Ошибка импорта ЖК', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка импорта ЖК', 'danger');
+    }
+}
+
+async function importYandexNewbuildings() {
+    try {
+        const response = await fetch('/api/import-yandex-newbuildings');
+        const result = await response.json();
+        if (result.success) {
+            showToast('Данные Яндекс.Недвижимость успешно импортированы!', 'success');
+            loadStats(); // Обновляем статистику
+        } else {
+            showToast('Ошибка импорта данных Яндекс.Недвижимость', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка импорта данных Яндекс.Недвижимость', 'danger');
+    }
+}
+
+// Загружаем статистику при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    loadStats();
+});
+</script>
+{% endblock %} 

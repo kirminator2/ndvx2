@@ -1,10 +1,12 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Админка недвижимости</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+{% extends 'base.html' %}
+
+{% block title %}Админка недвижимости{% endblock %}
+
+{% block bulk_actions %}
+
+{% endblock %}
+
+{% block head %}
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
@@ -35,9 +37,18 @@
         .stats-card {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
+            border-radius: 8px;
+            padding: 8px;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .stats-card h5 {
+            font-size: 0.8rem;
+            margin-bottom: 5px;
+        }
+        .stats-card h3 {
+            font-size: 1.2rem;
+            margin-bottom: 0;
         }
         .loading {
             display: none;
@@ -189,257 +200,13 @@
                 font-size: 0.75em;
                 padding: 3px 6px;
             }
-            .contact-info {
-                text-align: center;
-            }
-        }
-        /* Стили для карты ЖК */
-        #complexes-map {
-            height: 600px;
-            width: 100%;
-            border-radius: 8px;
-            border: 1px solid #dee2e6;
-        }
-        
-        .complex-marker-popup {
-            max-width: 300px;
-        }
-        
-        .complex-marker-popup h6 {
-            margin-bottom: 8px;
-            color: #0d6efd;
-        }
-        
-        .complex-marker-popup p {
-            margin-bottom: 4px;
-            font-size: 0.9em;
-        }
-        
-        .complex-marker-popup .badge {
-            font-size: 0.8em;
-        }
-        
-        .complex-marker-popup .btn {
-            margin-top: 8px;
-            font-size: 0.8em;
-        }
-        
-        /* Переключатель вида для ЖК */
-        .complex-view-toggle {
-            margin-bottom: 20px;
-        }
-        
-        .complex-view-toggle .btn-group {
-            width: 100%;
-        }
-        
-        .complex-view-toggle .btn {
-            flex: 1;
-        }
-        
-        /* Скрытие элементов при переключении вида */
-        .complex-list-view .complex-map-container {
-            display: none;
-        }
-        
-        .complex-map-view .complex-list-container {
-            display: none;
-        }
-        
-        .complex-map-view .complex-filters {
-            display: none;
-        }
-        
-        /* Стили для кластеров маркеров */
-        .marker-cluster {
-            background: rgba(13, 110, 253, 0.8);
-            border: 2px solid rgba(13, 110, 253, 1);
-            border-radius: 50%;
-            color: white;
-            height: 40px;
-            width: 40px;
-            text-align: center;
-            line-height: 36px;
-            font-size: 14px;
-            font-weight: bold;
-        }
-        
-        .marker-cluster-small {
-            background: rgba(13, 110, 253, 0.6);
-            border-color: rgba(13, 110, 253, 0.8);
-        }
-        
-        .marker-cluster-medium {
-            background: rgba(255, 193, 7, 0.8);
-            border-color: rgba(255, 193, 7, 1);
-        }
-        
-        .marker-cluster-large {
-            background: rgba(220, 53, 69, 0.8);
-            border-color: rgba(220, 53, 69, 1);
-        }
-        
-        .marker-cluster:hover {
-            background: rgba(13, 110, 253, 1);
-            border-color: rgba(13, 110, 253, 1);
-        }
-        
-        .marker-cluster-medium:hover {
-            background: rgba(255, 193, 7, 1);
-            border-color: rgba(255, 193, 7, 1);
-        }
-        
-        .marker-cluster-large:hover {
-            background: rgba(220, 53, 69, 1);
-            border-color: rgba(220, 53, 69, 1);
-        }
-
-        #autocomplete-list {
-            max-height: 300px;
-            min-width: 250px;
-            max-width: 350px;
-            width: auto;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-            border-radius: 0 0 8px 8px;
-            border: 1px solid #dee2e6;
-            background: #fff;
-            display: block;
-            position: absolute;
-            z-index: 1000;
-        }
-        #autocomplete-list .active {
-            background: #f1f3f4;
-            color: #343a40;
-            font-weight: bold;
-            cursor: default;
-            padding: 4px 10px 2px 10px;
-            font-size: 0.95em;
-        }
-        #autocomplete-list .list-group-item-action {
-            cursor: pointer;
-            padding: 4px 10px;
-            font-size: 0.97em;
-        }
-        #autocomplete-list .list-group-item-action:not(:last-child) {
-            border-bottom: 1px solid #f0f0f0;
-        }
-        #autocomplete-list .list-group-item-action:hover {
-            background: #e9ecef;
-        }
-        @media (max-width: 768px) {
-            #stats-container .col-md-1 {
-                flex: 0 0 48%;
-                max-width: 48%;
-            }
-        }
-        @media (min-width: 992px) {
-          #stats-container > div {
-            flex: 0 0 14.2857%;
-            max-width: 14.2857%;
-          }
-        }
-        #stats-container {
-          display: flex;
-          flex-wrap: wrap;
         }
     </style>
-</head>
-<body>
-    <div class="container-fluid">
-        <div class="row">
-            <div class="col-12">
-                <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-                    <div class="container-fluid">
-                        <a class="navbar-brand" href="#">
-                            <i class="fas fa-home me-2"></i>
-                            Админка недвижимости
-                        </a>
-                        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                            <li class="nav-item">
-                                <a class="nav-link" href="/" id="menu-objects"><i class="fas fa-list me-1"></i>Объекты</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="/complexes" id="menu-complexes"><i class="fas fa-city me-1"></i>ЖК</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="/yandex-newbuildings" id="menu-yandex"><i class="fab fa-yandex me-1"></i>Яндекс-ЖК</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="/sellers" id="menu-sellers"><i class="fas fa-users me-1"></i>Продавцы</a>
-                            </li>
-                        </ul>
-                        <div class="navbar-nav ms-auto">
-                            <div class="dropdown me-2">
-                                <button class="btn btn-outline-light dropdown-toggle" type="button" id="bulkActionsDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i class="fas fa-tasks me-1"></i>Массовые действия
-                                </button>
-                                <ul class="dropdown-menu" aria-labelledby="bulkActionsDropdown">
-                                    <li><a class="dropdown-item" href="#" onclick="downloadAndUpdateData()"><i class="fas fa-download me-1"></i>Скачать и обновить</a></li>
-                                    <li><a class="dropdown-item" href="#" onclick="importComplexes()"><i class="fas fa-upload me-1"></i>Импортировать ЖК</a></li>
-                                    <li><a class="dropdown-item" href="#" onclick="geocodeAllProperties()"><i class="fas fa-map-marker-alt me-1"></i>Геокодировать все</a></li>
-                                    <li><a class="dropdown-item" href="#" onclick="geocodeAllComplexes()"><i class="fas fa-map-marker me-1"></i>Геокодировать все ЖК</a></li>
-                                    <li><a class="dropdown-item" href="#" onclick="importSellerContacts()"><i class="fas fa-users me-1"></i>Импортировать продавцов</a></li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" href="#" onclick="linkPropertiesComplexes()"><i class="fas fa-link me-1"></i>Связать объекты и ЖК</a></li>
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><a class="dropdown-item" href="#" onclick="importYandexNewbuildings()"><i class="fab fa-yandex me-1"></i>Импорт Яндекс-ЖК</a></li>
-                                    <li><a class="dropdown-item" href="#" onclick="updateYandexLinks()"><i class="fas fa-link me-1"></i>Обновить связи</a></li>
-                                    <li><a class="dropdown-item" href="#" onclick="updateRatings()"><i class="fas fa-star me-1"></i>Обновить рейтинг</a></li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                </nav>
-            </div>
-        </div>
+{% endblock %}
 
+{% block content %}
         <!-- Оборачиваю всё, что относится к объектам, в <div id="properties-section"> ... </div> -->
         <div id="properties-section">
-            <!-- Статистика -->
-            <div class="row mt-3" id="stats-container">
-                <div class="col-6 col-md-1 mb-2">
-                    <div class="stats-card">
-                        <h5><i class="fas fa-building me-2"></i>Всего</h5>
-                        <h3 id="total-properties"><span class="spinner-border spinner-border-sm text-light" role="status" id="stats-loading-total-properties"></span></h3>
-                    </div>
-                </div>
-                <div class="col-6 col-md-1 mb-2">
-                    <div class="stats-card">
-                        <h5><i class="fas fa-phone me-2"></i>С контактами</h5>
-                        <h3 id="phone-count"><span class="spinner-border spinner-border-sm text-light" role="status" id="stats-loading-phone-count"></span></h3>
-                    </div>
-                </div>
-                <div class="col-6 col-md-1 mb-2">
-                    <div class="stats-card">
-                        <h5><i class="fas fa-headset me-2"></i>В кц</h5>
-                        <h3 id="sent-to-cc"><span class="spinner-border spinner-border-sm text-light" role="status" id="stats-loading-sent-to-cc"></span></h3>
-                    </div>
-                </div>
-                <div class="col-6 col-md-1 mb-2">
-                    <div class="stats-card">
-                        <h5><i class="fas fa-eraser me-2"></i>С фото</h5>
-                        <h3 id="watermarks-removed"><span class="spinner-border spinner-border-sm text-light" role="status" id="stats-loading-watermarks-removed"></span></h3>
-                    </div>
-                </div>
-                <div class="col-6 col-md-1 mb-2">
-                    <div class="stats-card">
-                        <h5><i class="fas fa-map-marker-alt me-2"></i>С адресами</h5>
-                        <h3 id="with-address"><span class="spinner-border spinner-border-sm text-light" role="status" id="stats-loading-with-address"></span></h3>
-                    </div>
-                </div>
-                <div class="col-6 col-md-1 mb-2">
-                    <div class="stats-card">
-                        <h5><i class="fab fa-yandex me-2"></i>В ЖК</h5>
-                        <h3 id="in-complex"><span class="spinner-border spinner-border-sm text-light" role="status" id="stats-loading-in-complex"></span></h3>
-                    </div>
-                </div>
-                <div class="col-6 col-md-1 mb-2">
-                    <div class="stats-card">
-                        <h5><i class="fas fa-magic me-2"></i>С описанием</h5>
-                        <h3 id="generated-description-count"><span class="spinner-border spinner-border-sm text-light" role="status" id="stats-loading-generated-description-count"></span></h3>
-                    </div>
-                </div>
-            </div>
 
             <!-- Фильтры -->
             <div class="row mt-3">
@@ -447,15 +214,17 @@
                     <div class="filters">
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <h5><i class="fas fa-filter me-2"></i>Фильтры</h5>
-                            <div class="btn-group" role="group">
-                                <input type="radio" class="btn-check" name="viewMode" id="cardView" value="cards" checked>
-                                <label class="btn btn-outline-primary" for="cardView">
-                                    <i class="fas fa-th-large me-1"></i>Карточки
-                                </label>
-                                <input type="radio" class="btn-check" name="viewMode" id="listView" value="list">
-                                <label class="btn btn-outline-primary" for="listView">
-                                    <i class="fas fa-list me-1"></i>Список
-                                </label>
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="btn-group me-2" role="group">
+                                    <input type="radio" class="btn-check" name="viewMode" id="cardView" value="cards" checked>
+                                    <label class="btn btn-outline-primary" for="cardView">
+                                        <i class="fas fa-th-large me-1"></i>Карточки
+                                    </label>
+                                    <input type="radio" class="btn-check" name="viewMode" id="listView" value="list">
+                                    <label class="btn btn-outline-primary" for="listView">
+                                        <i class="fas fa-list me-1"></i>Список
+                                    </label>
+                                </div>
                             </div>
                         </div>
                         <div class="row">
@@ -517,6 +286,18 @@
                                     <i class="fas fa-times me-1"></i>
                                     Очистить
                                 </button>
+                                <button class="btn btn-success ms-2" onclick="exportCSV()">
+                                    <i class="fas fa-download me-1"></i>
+                                    Экспорт CSV
+                                </button>
+                                <button class="btn btn-info ms-2" onclick="showRecentChanges()">
+                                    <i class="fas fa-history me-1"></i>
+                                    История цен
+                                </button>
+                                <button class="btn btn-warning ms-2" onclick="showPriceStatistics()">
+                                    <i class="fas fa-chart-line me-1"></i>
+                                    Статистика
+                                </button>
                                 <div class="form-check ms-4">
                                     <input class="form-check-input" type="checkbox" value="1" id="contacts-only-filter">
                                     <label class="form-check-label" for="contacts-only-filter">
@@ -527,6 +308,12 @@
                                     <input class="form-check-input" type="checkbox" value="1" id="in-complex-only-filter">
                                     <label class="form-check-label" for="in-complex-only-filter">
                                         Только в ЖК
+                                    </label>
+                                </div>
+                                <div class="form-check ms-4">
+                                    <input class="form-check-input" type="checkbox" value="1" id="in-sale-only-filter">
+                                    <label class="form-check-label" for="in-sale-only-filter">
+                                        В продаже
                                     </label>
                                 </div>
                             </div>
@@ -560,59 +347,6 @@
                             </ul>
                         </nav>
                     </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Новый раздел ЖК -->
-        <div id="complexes-section" style="display:none;">
-            <div class="container mt-4">
-                <h2 class="mb-4"><i class="fas fa-city me-2"></i>Жилые комплексы</h2>
-                
-                <!-- Переключатель вида для ЖК -->
-                <div class="complex-view-toggle">
-                    <div class="btn-group" role="group">
-                        <input type="radio" class="btn-check" name="complexViewMode" id="complexListView" checked>
-                        <label class="btn btn-outline-primary" for="complexListView">
-                            <i class="fas fa-list me-1"></i>Список
-                        </label>
-                        
-                        <input type="radio" class="btn-check" name="complexViewMode" id="complexMapView">
-                        <label class="btn btn-outline-primary" for="complexMapView">
-                            <i class="fas fa-map me-1"></i>Карта
-                        </label>
-                    </div>
-                </div>
-                
-                <!-- Фильтры для ЖК (скрываются в режиме карты) -->
-                <div class="complex-filters">
-                    <div class="row mb-3">
-                        <div class="col-md-3">
-                            <input type="text" class="form-control" id="complex-name-filter" placeholder="Название ЖК">
-                        </div>
-                        <div class="col-md-3">
-                            <input type="text" class="form-control" id="complex-developer-filter" placeholder="Застройщик">
-                        </div>
-                        <div class="col-md-3">
-                            <input type="text" class="form-control" id="complex-status-filter" placeholder="Статус">
-                        </div>
-                        <div class="col-md-3">
-                            <button class="btn btn-primary w-100" onclick="applyComplexFilters()"><i class="fas fa-search me-1"></i>Поиск</button>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Контейнер для списка ЖК -->
-                <div class="complex-list-container">
-                    <div class="row" id="complexes-list"></div>
-                    <div class="pagination-container">
-                        <nav><ul class="pagination" id="complexes-pagination"></ul></nav>
-                    </div>
-                </div>
-                
-                <!-- Контейнер для карты ЖК -->
-                <div class="complex-map-container">
-                    <div id="complexes-map"></div>
                 </div>
             </div>
         </div>
@@ -739,6 +473,7 @@
             document.getElementById('with-address').innerHTML = '<span class="spinner-border spinner-border-sm text-light" role="status"></span>';
             document.getElementById('in-complex').innerHTML = '<span class="spinner-border spinner-border-sm text-light" role="status"></span>';
             document.getElementById('generated-description-count').innerHTML = '<span class="spinner-border spinner-border-sm text-light" role="status"></span>';
+            document.getElementById('in-sale-count').innerHTML = '<span class="spinner-border spinner-border-sm text-light" role="status"></span>';
             fetch('/api/stats')
                 .then(response => response.json())
                 .then(stats => {
@@ -749,6 +484,7 @@
                     document.getElementById('with-address').textContent = stats.with_address;
                     document.getElementById('in-complex').textContent = stats.in_complex;
                     document.getElementById('generated-description-count').textContent = stats.generated_description_count;
+                    document.getElementById('in-sale-count').textContent = stats.in_sale_count;
                 })
                 .catch(() => {
                     showToast('Ошибка загрузки статистики', 'danger');
@@ -770,7 +506,7 @@
                     ...currentFilters
                 });
 
-                const response = await fetch(`/api/properties?${params}`);
+                const response = await fetch(`/api/properties-fast?${params}`);
                 const data = await response.json();
 
                 currentPage = data.current_page;
@@ -820,6 +556,7 @@
                                 <span class="badge bg-primary">${property.rooms_count || 0} комн.</span>
                                 ${property.floor ? `<span class="badge bg-secondary">${property.floor}/${property.total_floors || '?'} эт.</span>` : ''}
                                 ${property.construction_year ? `<span class="badge bg-info">${property.construction_year}</span>` : ''}
+                                ${property.in_sale ? `<span class="badge bg-success"><i class="fas fa-tag me-1"></i>В продаже</span>` : ''}
                             </div>
                         </div>
                         <div class="card-footer">
@@ -869,6 +606,7 @@
                                 </span>` : ''}
                                 ${property.rating && property.dadata_address && property.dadata_address.address ? `<span class="list-badge bg-warning"><i class="fas fa-star me-1"></i>Рейтинг Дома: ${property.rating}</span>` : ''}
                                 ${property.yandex_rating && property.yandex_complex_name ? `<span class="list-badge bg-info"><i class="fab fa-yandex me-1"></i>Рейтинг ЖК: ${property.yandex_rating}</span>` : ''}
+                                ${property.in_sale ? `<span class="list-badge bg-success"><i class="fas fa-tag me-1"></i>В продаже</span>` : ''}
                             </div>
                             ${property.description ? `<div class="list-description">${property.description.substring(0, 150)}${property.description.length > 150 ? '...' : ''}</div>` : ''}
                             ${property.generated_description ? `<div class="list-description text-success"><i class="fas fa-magic me-1"></i>${property.generated_description.substring(0, 150)}${property.generated_description.length > 150 ? '...' : ''}</div>` : ''}
@@ -984,23 +722,52 @@
             const q = document.getElementById('global-search').value.trim();
             const contactsOnly = document.getElementById('contacts-only-filter').checked;
             const inComplexOnly = document.getElementById('in-complex-only-filter').checked;
+            const inSaleOnly = document.getElementById('in-sale-only-filter').checked;
             const ratingMin = document.getElementById('rating-min').value;
             const ratingMax = document.getElementById('rating-max').value;
             const yandexRatingMin = document.getElementById('yandex-rating-min').value;
             const yandexRatingMax = document.getElementById('yandex-rating-max').value;
+            const priceMin = document.getElementById('price-min').value;
+            const priceMax = document.getElementById('price-max').value;
+            const areaMin = document.getElementById('area-min').value;
+            const areaMax = document.getElementById('area-max').value;
+            const rooms = document.getElementById('rooms-filter').value;
+            
             currentFilters = q ? { q } : {};
             if (contactsOnly) currentFilters.contacts_only = 1;
             if (inComplexOnly) currentFilters.in_complex_only = 1;
+            if (inSaleOnly) currentFilters.in_sale_only = 1;
             if (ratingMin) currentFilters.rating_min = ratingMin;
             if (ratingMax) currentFilters.rating_max = ratingMax;
             if (yandexRatingMin) currentFilters.yandex_rating_min = yandexRatingMin;
             if (yandexRatingMax) currentFilters.yandex_rating_max = yandexRatingMax;
+            if (priceMin) currentFilters.price_min = priceMin;
+            if (priceMax) currentFilters.price_max = priceMax;
+            if (areaMin) currentFilters.area_min = areaMin;
+            if (areaMax) currentFilters.area_max = areaMax;
+            if (rooms) currentFilters.rooms = rooms;
+            // Добавить yandex_building_id если был выбран ЖК
+            if (window.lastSelectedYandexBuildingId) {
+                currentFilters.yandex_building_id = window.lastSelectedYandexBuildingId;
+            }
             loadProperties(1);
         }
 
         // Очистка фильтров
         function clearFilters() {
             document.getElementById('global-search').value = '';
+            document.getElementById('contacts-only-filter').checked = false;
+            document.getElementById('in-complex-only-filter').checked = false;
+            document.getElementById('in-sale-only-filter').checked = false;
+            document.getElementById('rating-min').value = '';
+            document.getElementById('rating-max').value = '';
+            document.getElementById('yandex-rating-min').value = '';
+            document.getElementById('yandex-rating-max').value = '';
+            document.getElementById('price-min').value = '';
+            document.getElementById('price-max').value = '';
+            document.getElementById('area-min').value = '';
+            document.getElementById('area-max').value = '';
+            document.getElementById('rooms-filter').value = '';
             currentFilters = {};
             loadProperties(1);
         }
@@ -1032,32 +799,7 @@
             }
         }
 
-        // Скачивание и обновление данных
-        async function downloadAndUpdateData() {
-            const button = event.target;
-            const originalText = button.innerHTML;
-            
-            button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Скачивание...';
-            button.disabled = true;
 
-            try {
-                const response = await fetch('/api/download-and-update');
-                const result = await response.json();
-                
-                if (result.success) {
-                    showToast('Данные успешно скачаны и обновлены!', 'success');
-                    loadProperties(1);
-                } else {
-                    showToast('Ошибка скачивания данных', 'danger');
-                }
-            } catch (error) {
-                console.error('Ошибка:', error);
-                showToast('Ошибка скачивания данных', 'danger');
-            } finally {
-                button.innerHTML = originalText;
-                button.disabled = false;
-            }
-        }
 
         // Показать детали объекта
         async function showPropertyDetails(propertyId) {
@@ -1302,7 +1044,10 @@
         }
 
         // Геокодирование всех объектов
-        async function geocodeAllProperties() {
+        async function geocodeAllProperties(event) {
+            console.log('geocodeAllProperties called');
+            alert('Функция geocodeAllProperties вызвана!');
+            
             const button = event.target;
             const originalText = button.innerHTML;
             
@@ -1356,25 +1101,27 @@
 
         // Инициализация при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
-            // Добавляем обработчики для переключения режимов
-            document.getElementById('cardView').addEventListener('change', handleViewModeChange);
-            document.getElementById('listView').addEventListener('change', handleViewModeChange);
-            
-            // Добавляем обработчики для переключения вида ЖК
-            document.getElementById('complexListView').addEventListener('change', handleComplexViewModeChange);
-            document.getElementById('complexMapView').addEventListener('change', handleComplexViewModeChange);
-            
-            // Добавляем обработчики для навигации
-            document.getElementById('menu-objects').addEventListener('click', showPropertiesSection);
-            document.getElementById('menu-complexes').addEventListener('click', showComplexesSection);
-            
+            var cardView = document.getElementById('cardView');
+            if (cardView) cardView.addEventListener('change', handleViewModeChange);
+            var listView = document.getElementById('listView');
+            if (listView) listView.addEventListener('change', handleViewModeChange);
+            var complexListView = document.getElementById('complexListView');
+            if (complexListView) complexListView.addEventListener('change', handleComplexViewModeChange);
+            var complexMapView = document.getElementById('complexMapView');
+            if (complexMapView) complexMapView.addEventListener('change', handleComplexViewModeChange);
+            var menuObjects = document.getElementById('menu-objects');
+            if (menuObjects) menuObjects.addEventListener('click', showPropertiesSection);
+            var menuComplexes = document.getElementById('menu-complexes');
+            if (menuComplexes) menuComplexes.addEventListener('click', showComplexesSection);
             if (window.location.pathname === '/complexes') {
-                showComplexesSection();
+                if (typeof showComplexesSection === 'function') showComplexesSection();
             } else {
-                showPropertiesSection();
+                if (typeof showPropertiesSection === 'function') showPropertiesSection();
+                // ГАРАНТИРОВАННО загружаем объекты при первом открытии
+                if (typeof loadProperties === 'function') loadProperties(1);
             }
-            loadStats();
-            loadYandexComplexesList();
+            if (typeof loadStats === 'function') loadStats();
+            if (typeof loadYandexComplexesList === 'function') loadYandexComplexesList();
         });
 
         // Обработчик переключения вида ЖК
@@ -1663,9 +1410,12 @@
         }
 
         function showPropertiesSection() {
-            document.getElementById('complexes-section').style.display = 'none';
-            document.getElementById('properties-section').style.display = '';
-            loadProperties(1);
+            var propSection = document.getElementById('properties-section');
+            if (propSection) propSection.style.display = 'block';
+            var complexesSection = document.getElementById('complexes-section');
+            if (complexesSection) complexesSection.style.display = 'none';
+            // ГАРАНТИРОВАННО загружаем объекты при переключении
+            if (typeof loadProperties === 'function') loadProperties(1);
         }
 
         // Новые функции для географии
@@ -1714,7 +1464,7 @@
         }
 
         // Функция для связывания объектов и ЖК
-        async function linkPropertiesComplexes() {
+        async function linkPropertiesComplexes(event) {
             const button = event.target;
             const originalText = button.innerHTML;
             button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Обработка...';
@@ -1742,9 +1492,19 @@
 
         // Показать раздел связанных данных
         function showLinkedSection() {
-            document.getElementById('properties-section').style.display = 'none';
-            document.getElementById('complexes-section').style.display = 'none';
-            document.getElementById('linked-section').style.display = '';
+            const propertiesSection = document.getElementById('properties-section');
+            const complexesSection = document.getElementById('complexes-section');
+            const linkedSection = document.getElementById('linked-section');
+            
+            if (propertiesSection) {
+                propertiesSection.style.display = 'none';
+            }
+            if (complexesSection) {
+                complexesSection.style.display = 'none';
+            }
+            if (linkedSection) {
+                linkedSection.style.display = '';
+            }
         }
 
         // Обновить статистику связей
@@ -1757,14 +1517,29 @@
                 totalComplexes += item.complexes.length;
             });
             
-            document.getElementById('total-linked-addresses').textContent = linkedData.length;
-            document.getElementById('total-linked-properties').textContent = totalProperties;
-            document.getElementById('total-linked-complexes').textContent = totalComplexes;
+            const totalAddressesEl = document.getElementById('total-linked-addresses');
+            const totalPropertiesEl = document.getElementById('total-linked-properties');
+            const totalComplexesEl = document.getElementById('total-linked-complexes');
+            
+            if (totalAddressesEl) {
+                totalAddressesEl.textContent = linkedData.length;
+            }
+            if (totalPropertiesEl) {
+                totalPropertiesEl.textContent = totalProperties;
+            }
+            if (totalComplexesEl) {
+                totalComplexesEl.textContent = totalComplexes;
+            }
         }
 
         // Отображение связанных данных
         function displayLinkedData(linkedData) {
             const container = document.getElementById('linked-data-container');
+            
+            if (!container) {
+                console.error('Контейнер linked-data-container не найден');
+                return;
+            }
             
             if (!linkedData || linkedData.length === 0) {
                 container.innerHTML = '<div class="alert alert-info">Нет связанных объектов и ЖК. Сначала выполните геокодирование.</div>';
@@ -2019,7 +1794,10 @@
         }
 
         // Массовое обновление рейтинга
-        async function updateRatings() {
+        async function updateRatings(event) {
+            console.log('updateRatings called');
+            alert('Функция updateRatings вызвана!');
+            
             const button = event.target;
             const originalText = button.innerHTML;
             button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Обновление...';
@@ -2044,8 +1822,89 @@
             }
         }
 
+        // Экспорт объектов в CSV
+        async function exportToCSV(event) {
+            const button = event.target;
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Экспорт...';
+            button.disabled = true;
+            
+            try {
+                // Используем текущие фильтры из поиска
+                const params = new URLSearchParams();
+                
+                // Добавляем все текущие фильтры
+                Object.keys(currentFilters).forEach(key => {
+                    params.append(key, currentFilters[key]);
+                });
+                
+                // Проверяем, есть ли фильтры
+                const hasFilters = Object.keys(currentFilters).length > 0;
+                
+                if (!hasFilters) {
+                    if (!confirm('Нет активных фильтров. Экспортировать все объекты (7201 записей)?')) {
+                        button.innerHTML = originalText;
+                        button.disabled = false;
+                        return;
+                    }
+                }
+                
+                // Используем fetch для скачивания с параметрами
+                const url = `/export-properties-csv?${params.toString()}`;
+                
+                // Формируем имя файла с учетом фильтров
+                let filename = 'properties_export';
+                
+                // Добавляем информацию о фильтрах в имя файла
+                if (currentFilters.q) {
+                    filename += `_search_${currentFilters.q.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                }
+                if (currentFilters.contacts_only) {
+                    filename += '_with_contacts';
+                }
+                if (currentFilters.in_sale_only) {
+                    filename += '_in_sale';
+                }
+                if (currentFilters.yandex_complex) {
+                    filename += `_complex_${currentFilters.yandex_complex.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                }
+                if (currentFilters.price_min || currentFilters.price_max) {
+                    filename += `_price_${currentFilters.price_min || 0}-${currentFilters.price_max || 'max'}`;
+                }
+                if (currentFilters.area_min || currentFilters.area_max) {
+                    filename += `_area_${currentFilters.area_min || 0}-${currentFilters.area_max || 'max'}`;
+                }
+                
+                filename += `_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
+                
+                // Скачиваем файл через fetch
+                const response = await fetch(url);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const downloadUrl = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = downloadUrl;
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(downloadUrl);
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const message = hasFilters ? `Экспорт результатов поиска начат! (${Object.keys(currentFilters).length} фильтров)` : 'Экспорт всех объектов начат!';
+                showToast(message, 'success');
+            } catch (e) {
+                showToast('Ошибка экспорта CSV: ' + e.message, 'danger');
+            } finally {
+                button.innerHTML = originalText;
+                button.disabled = false;
+            }
+        }
+
         // Обновление связей объектов с Яндекс-ЖК
-        async function updateYandexLinks() {
+        async function updateYandexLinks(event) {
             const button = event.target;
             const originalText = button.innerHTML;
             button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Обновление связей...';
@@ -2138,6 +1997,7 @@
             }
         }
 
+        // --- Найти обработку autocomplete ---
         document.getElementById('global-search').addEventListener('input', function(e) {
             const q = e.target.value.trim();
             clearTimeout(autocompleteTimeout);
@@ -2152,19 +2012,37 @@
                 for (const group of ['id', 'address', 'complex', 'phone']) {
                     if (data[group] && data[group].length) {
                         html += `<div class='list-group-item active'>${group === 'id' ? 'ID' : group === 'address' ? 'Адрес' : group === 'complex' ? 'ЖК' : 'Телефон'}</div>`;
-                        data[group].forEach(val => {
-                            html += `<button type='button' class='list-group-item list-group-item-action' onclick='selectAutocompleteValue("${val}")'>${val}</button>`;
-                        });
+                        if (group === 'complex') {
+                            const unique = [];
+                            const seen = new Set();
+                            data.complex.forEach(item => {
+                                if (!seen.has(item.name)) {
+                                    unique.push(item);
+                                    seen.add(item.name);
+                                }
+                            });
+                            unique.forEach(item => {
+                                html += `<button type='button' class='list-group-item list-group-item-action' onclick='selectAutocompleteValue("${item.name}", "${item.id}")'>${item.name} (${item.count})</button>`;
+                            });
+                        } else {
+                            const unique = Array.from(new Set(data[group]));
+                            unique.forEach(val => {
+                                html += `<button type='button' class='list-group-item list-group-item-action' onclick='selectAutocompleteValue("${val}")'>${val}</button>`;
+                            });
+                        }
                     }
                 }
                 document.getElementById('autocomplete-list').innerHTML = html;
             }, 200);
         });
 
-        window.selectAutocompleteValue = function(val) {
+        window.selectAutocompleteValue = function(val, id) {
             document.getElementById('global-search').value = val;
             document.getElementById('autocomplete-list').innerHTML = '';
             currentFilters = { q: val };
+            if (id) {
+                currentFilters.yandex_building_id = id;
+            }
             loadProperties(1);
         };
 
@@ -2189,6 +2067,174 @@
                 })
                 .catch(() => alert('Ошибка запроса!'));
         }
+
+        function importTrendagent() {
+            const btn = event.target;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Импорт...';
+            btn.disabled = true;
+            fetch('/api/import-trendagent', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast('Импорт trendagent завершен!', 'success');
+                    } else {
+                        showToast('Ошибка импорта trendagent: ' + (data.error || ''), 'danger');
+                    }
+                })
+                .catch(e => {
+                    showToast('Ошибка импорта trendagent', 'danger');
+                })
+                .finally(() => {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                });
+        }
+
+        async function exportCSV() {
+            try {
+                // Собираем текущие фильтры
+                const filters = new URLSearchParams();
+                
+                // Добавляем все активные фильтры
+                if (currentFilters.q) filters.append('q', currentFilters.q);
+                if (currentFilters.contacts_only) filters.append('contacts_only', '1');
+                if (currentFilters.in_sale_only) filters.append('in_sale_only', '1');
+                if (currentFilters.yandex_complex) filters.append('yandex_complex', currentFilters.yandex_complex);
+                if (currentFilters.price_min) filters.append('price_min', currentFilters.price_min);
+                if (currentFilters.price_max) filters.append('price_max', currentFilters.price_max);
+                if (currentFilters.area_min) filters.append('area_min', currentFilters.area_min);
+                if (currentFilters.area_max) filters.append('area_max', currentFilters.area_max);
+                if (currentFilters.rooms) filters.append('rooms', currentFilters.rooms);
+                if (currentFilters.rating_min) filters.append('rating_min', currentFilters.rating_min);
+                if (currentFilters.rating_max) filters.append('rating_max', currentFilters.rating_max);
+                if (currentFilters.yandex_rating_min) filters.append('yandex_rating_min', currentFilters.yandex_rating_min);
+                if (currentFilters.yandex_rating_max) filters.append('yandex_rating_max', currentFilters.yandex_rating_max);
+                if (currentFilters.in_complex_only) filters.append('in_complex_only', '1');
+                if (currentFilters.yandex_building_id) filters.append('yandex_building_id', currentFilters.yandex_building_id);
+                
+                // Создаем ссылку для скачивания
+                const downloadUrl = `/export-properties-csv?${filters.toString()}`;
+                
+                // Используем fetch для проверки ответа
+                const response = await fetch(downloadUrl);
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const downloadUrl = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = downloadUrl;
+                    link.download = `properties_export_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(downloadUrl);
+                    
+                    showToast('Экспорт CSV завершен', 'success');
+                } else {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+                }
+            } catch (e) {
+                showToast('Ошибка экспорта CSV: ' + e.message, 'danger');
+                console.error('Ошибка экспорта:', e);
+            }
+        }
+
+        function showRecentChanges() {
+            fetch('/api/recent-price-changes?limit=20&days=7')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        let html = '<div class="modal fade" id="changesModal" tabindex="-1">';
+                        html += '<div class="modal-dialog modal-lg">';
+                        html += '<div class="modal-content">';
+                        html += '<div class="modal-header">';
+                        html += '<h5 class="modal-title">💰 Последние изменения цен</h5>';
+                        html += '<button type="button" class="btn-close" data-bs-dismiss="modal"></button>';
+                        html += '</div>';
+                        html += '<div class="modal-body">';
+                        html += '<div class="table-responsive">';
+                        html += '<table class="table table-sm">';
+                        html += '<thead><tr><th>Объект</th><th>Старая цена</th><th>Новая цена</th><th>Изменение</th><th>%</th><th>Когда</th></tr></thead>';
+                        html += '<tbody>';
+                        
+                        data.price_changes.forEach(record => {
+                            const changeClass = record.price_change > 0 ? 'text-success' : record.price_change < 0 ? 'text-danger' : 'text-muted';
+                            const changeSymbol = record.price_change > 0 ? '📈' : record.price_change < 0 ? '📉' : '➡️';
+                            
+                            html += `<tr>
+                                <td><a href="#" onclick="showProperty(${record.property_id})">${record.property_id}</a></td>
+                                <td class="text-muted">${record.old_price ? record.old_price.toLocaleString() : '-'} ₽</td>
+                                <td class="text-success">${record.new_price.toLocaleString()} ₽</td>
+                                <td class="${changeClass}">${changeSymbol} ${record.price_change > 0 ? '+' : ''}${record.price_change.toLocaleString()} ₽</td>
+                                <td class="${changeClass}">${record.change_percent > 0 ? '+' : ''}${record.change_percent.toFixed(1)}%</td>
+                                <td>${new Date(record.changed_at).toLocaleString()}</td>
+                            </tr>`;
+                        });
+                        
+                        html += '</tbody></table></div></div></div></div>';
+                        
+                        // Удаляем старый модал если есть
+                        const oldModal = document.getElementById('changesModal');
+                        if (oldModal) oldModal.remove();
+                        
+                        document.body.insertAdjacentHTML('beforeend', html);
+                        new bootstrap.Modal(document.getElementById('changesModal')).show();
+                    } else {
+                        alert('Ошибка загрузки истории: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка:', error);
+                    alert('Ошибка загрузки истории изменений');
+                });
+        }
+
+        function showPriceStatistics() {
+            fetch('/api/price-statistics?days=30')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const stats = data.statistics;
+                        let html = '<div class="modal fade" id="statsModal" tabindex="-1">';
+                        html += '<div class="modal-dialog">';
+                        html += '<div class="modal-content">';
+                        html += '<div class="modal-header">';
+                        html += '<h5 class="modal-title">📈 Статистика изменений цен</h5>';
+                        html += '<button type="button" class="btn-close" data-bs-dismiss="modal"></button>';
+                        html += '</div>';
+                        html += '<div class="modal-body">';
+                        html += '<div class="row text-center">';
+                        html += '<div class="col-md-4"><div class="card bg-primary text-white"><div class="card-body"><h4>'+stats.total_changes+'</h4><p>Всего изменений</p></div></div></div>';
+                        html += '<div class="col-md-4"><div class="card bg-success text-white"><div class="card-body"><h4>'+stats.price_increases+'</h4><p>Повышений цены</p></div></div></div>';
+                        html += '<div class="col-md-4"><div class="card bg-danger text-white"><div class="card-body"><h4>'+stats.price_decreases+'</h4><p>Снижений цены</p></div></div></div>';
+                        html += '</div>';
+                        html += '<div class="row mt-3">';
+                        html += '<div class="col-md-6"><div class="card"><div class="card-body text-center"><h5 class="text-success">+'+stats.avg_increase_percent+'%</h5><p>Среднее повышение</p></div></div></div>';
+                        html += '<div class="col-md-6"><div class="card"><div class="card-body text-center"><h5 class="text-danger">'+stats.avg_decrease_percent+'%</h5><p>Среднее снижение</p></div></div></div>';
+                        html += '</div>';
+                        html += '<div class="mt-3"><small class="text-muted">За последние '+stats.period_days+' дней</small></div>';
+                        html += '</div></div></div></div>';
+                        
+                        // Удаляем старый модал если есть
+                        const oldModal = document.getElementById('statsModal');
+                        if (oldModal) oldModal.remove();
+                        
+                        document.body.insertAdjacentHTML('beforeend', html);
+                        new bootstrap.Modal(document.getElementById('statsModal')).show();
+                    } else {
+                        alert('Ошибка загрузки статистики: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Ошибка:', error);
+                    alert('Ошибка загрузки статистики');
+                });
+        }
     </script>
-</body>
-</html>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/js/all.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+{% endblock %}

@@ -1,0 +1,259 @@
+{% extends 'base.html' %}
+
+{% block head %}
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+{% endblock %}
+
+{% block bulk_actions %}
+    <div class="dropdown me-2">
+        <button class="btn btn-outline-light dropdown-toggle" type="button" id="bulkActionsDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fas fa-tasks me-1"></i>Массовые действия
+        </button>
+        <ul class="dropdown-menu" aria-labelledby="bulkActionsDropdown">
+            <li><a class="dropdown-item" href="#" onclick="importComplexes()"><i class="fas fa-upload me-1"></i>Импортировать ЖК</a></li>
+            <li><a class="dropdown-item" href="#" onclick="geocodeAllComplexes()"><i class="fas fa-map-marker me-1"></i>Геокодировать все ЖК</a></li>
+        </ul>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h2>Жилые комплексы (ЖК)</h2>
+    <div class="d-flex justify-content-end mb-3">
+        <button class="btn btn-success" id="import-complexes-btn">Импортировать ЖК</button>
+    </div>
+    <div class="mb-3 d-flex align-items-center">
+        <input type="text" id="search" class="form-control me-3" placeholder="Поиск по названию или застройщику..." style="max-width: 350px;">
+        <div class="btn-group" role="group" aria-label="Вид">
+            <input type="radio" class="btn-check" name="viewMode" id="listView" autocomplete="off" checked>
+            <label class="btn btn-outline-primary" for="listView">Список</label>
+            <input type="radio" class="btn-check" name="viewMode" id="mapView" autocomplete="off">
+            <label class="btn btn-outline-primary" for="mapView">Карта</label>
+        </div>
+    </div>
+    <div id="complexes-list-section">
+        <table class="table table-bordered table-hover" id="complexes-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Название</th>
+                    <th>Адрес</th>
+                    <th>Застройщик</th>
+                    <th>Статус</th>
+                    <th>Готовность</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <nav>
+            <ul class="pagination" id="pagination"></ul>
+        </nav>
+    </div>
+    <div id="complexes-map-section" style="display:none; height: 600px;">
+        <div id="complexes-map" style="height: 100%; width: 100%; border-radius: 8px; border: 1px solid #dee2e6;"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+<script>
+$(document).ready(function() {
+    let currentPage = 1;
+    let lastPage = 1;
+    let search = '';
+    let complexesCache = [];
+    let complexesMap = null;
+    let markerCluster = null;
+
+    function loadComplexes(page = 1, forMap = false) {
+        console.log('Loading complexes, page:', page, 'forMap:', forMap);
+        $.get('/api/complexes', {page: page, search: search, per_page: forMap ? 1000 : 50}, function(data) {
+            console.log('Complexes data received:', data);
+            if (forMap) {
+                complexesCache = data.complexes;
+                renderComplexesMap();
+                return;
+            }
+            const tbody = $('#complexes-table tbody');
+            tbody.empty();
+            data.complexes.forEach(function(c) {
+                let addressHtml = c.dadata_address ?
+                    `<div><b>${c.dadata_address.address}</b></div><div class='address-info'>${c.dadata_address.full_address || ''}</div>` :
+                    (c.address || '');
+                tbody.append(`
+                    <tr>
+                        <td>${c.id}</td>
+                        <td>${c.name || ''}</td>
+                        <td>${addressHtml}</td>
+                        <td>${c.developer_name || ''}</td>
+                        <td>${c.status || ''}</td>
+                        <td>${c.ready_date || ''}</td>
+                        <td>
+                            <button class="btn btn-sm btn-primary geocode-btn" data-id="${c.id}">Определить адрес</button>
+                        </td>
+                    </tr>
+                `);
+            });
+            // Пагинация
+            currentPage = data.current_page;
+            lastPage = data.pages;
+            const pag = $('#pagination');
+            pag.empty();
+            for (let i = 1; i <= lastPage; i++) {
+                pag.append(`<li class="page-item${i === currentPage ? ' active' : ''}"><a class="page-link" href="#">${i}</a></li>`);
+            }
+        }).fail(function(xhr, status, error) {
+            console.error('Error loading complexes:', error);
+            console.log('Response:', xhr.responseText);
+        });
+    }
+
+    function renderComplexesMap() {
+        if (!complexesMap) {
+            complexesMap = L.map('complexes-map').setView([45.035470, 38.975313], 12); // Центр Краснодара
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(complexesMap);
+        }
+        // Удалить старую кластер-группу
+        if (markerCluster) {
+            markerCluster.clearLayers();
+            complexesMap.removeLayer(markerCluster);
+        }
+        markerCluster = L.markerClusterGroup();
+        complexesCache.forEach(function(c) {
+            let lat = c.latitude, lon = c.longitude;
+            if (lat && lon) {
+                let marker = L.marker([lat, lon]);
+                let popup = `<b>${c.name || ''}</b><br>${c.dadata_address ? c.dadata_address.address : (c.address || '')}<br>${c.developer_name || ''}`;
+                marker.bindPopup(popup);
+                markerCluster.addLayer(marker);
+            }
+        });
+        complexesMap.addLayer(markerCluster);
+        if (markerCluster.getLayers().length) {
+            let group = markerCluster;
+            complexesMap.fitBounds(group.getBounds().pad(0.2));
+        }
+    }
+
+    // Обработчики событий
+    $(document).on('click', '.geocode-btn', function() {
+        const id = $(this).data('id');
+        const btn = $(this);
+        btn.prop('disabled', true).text('Определение...');
+        $.get(`/api/geocode-complex/${id}`, function(resp) {
+            if (resp.success) {
+                btn.closest('tr').find('td').eq(2).html(`<div><b>${resp.address.address}</b></div><div class='address-info'>${resp.address.full_address || ''}</div>`);
+            } else {
+                alert('Ошибка: ' + (resp.error || 'Не удалось определить адрес'));
+            }
+            btn.prop('disabled', false).text('Определить адрес');
+        });
+    });
+
+    $(document).on('click', '#pagination .page-link', function(e) {
+        e.preventDefault();
+        const page = parseInt($(this).text());
+        if (page !== currentPage) {
+            loadComplexes(page);
+        }
+    });
+
+    // Только если есть поле поиска
+    if ($('#search').length) {
+        $('#search').on('input', function() {
+            search = $(this).val();
+            if ($('#listView').is(':checked')) {
+                loadComplexes(1);
+            } else {
+                loadComplexes(1, true);
+            }
+        });
+    }
+    
+    // Только если есть кнопка импорта
+    if ($('#import-complexes-btn').length) {
+        $('#import-complexes-btn').on('click', function() {
+            const btn = $(this);
+            btn.prop('disabled', true).text('Импорт...');
+            $.get('/api/import-complexes', function(resp) {
+                if (resp.success) {
+                    alert('Импорт завершён!');
+                    if ($('#listView').is(':checked')) {
+                        loadComplexes();
+                    } else {
+                        loadComplexes(1, true);
+                    }
+                } else {
+                    alert('Ошибка: ' + (resp.error || 'Не удалось импортировать'));
+                }
+                btn.prop('disabled', false).text('Импортировать ЖК');
+            });
+        });
+    }
+    
+    // Переключатель вида
+    $('#listView').on('change', function() {
+        if (this.checked) {
+            $('#complexes-list-section').show();
+            $('#complexes-map-section').hide();
+            loadComplexes(1);
+        }
+    });
+    
+    $('#mapView').on('change', function() {
+        if (this.checked) {
+            $('#complexes-list-section').hide();
+            $('#complexes-map-section').show();
+            loadComplexes(1, true);
+        }
+    });
+    
+    // По умолчанию загрузить список
+    loadComplexes(1);
+});
+
+// Функции для массовых действий (глобальные)
+function importComplexes() {
+    if (!confirm('Импортировать ЖК из Google Sheets? Все старые данные будут удалены.')) return;
+    const btn = $('#import-complexes-btn');
+    btn.prop('disabled', true).text('Импорт...');
+    $.get('/api/import-complexes', function(resp) {
+        if (resp.success) {
+            alert('Импорт завершён!');
+            if ($('#listView').is(':checked')) {
+                loadComplexes();
+            } else {
+                loadComplexes(1, true);
+            }
+        } else {
+            alert('Ошибка: ' + (resp.error || 'Не удалось импортировать'));
+        }
+        btn.prop('disabled', false).text('Импортировать ЖК');
+    });
+}
+
+function geocodeAllComplexes() {
+    if (!confirm('Определить адреса для всех ЖК? Это может занять некоторое время.')) return;
+    $.post('/api/geocode-all-complexes', function(resp) {
+        if (resp.success) {
+            alert(`Обработано: ${resp.processed}, ошибок: ${resp.errors}`);
+            if ($('#listView').is(':checked')) {
+                loadComplexes();
+            } else {
+                loadComplexes(1, true);
+            }
+        } else {
+            alert('Ошибка: ' + (resp.error || 'Не удалось определить адреса'));
+        }
+    });
+}
+</script>
+{% endblock %} 

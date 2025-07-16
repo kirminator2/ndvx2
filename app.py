@@ -2,7 +2,7 @@ import functools
 import signal
 import threading
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
 from flask_sqlalchemy import SQLAlchemy
 import pandas as pd
 import os
@@ -16,6 +16,8 @@ import csv
 from sqlalchemy.orm import aliased, joinedload
 from sqlalchemy import or_
 from g4f.client import Client
+from io import StringIO
+import traceback
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///real_estate.db'
@@ -177,6 +179,18 @@ class ResidentialComplex(db.Model):
     dadata_address = db.relationship('Address', backref='complexes')
 
 
+class ComplexPhoto(db.Model):
+    __tablename__ = 'complex_photos'
+    id = db.Column(db.Integer, primary_key=True)
+    complex_id = db.Column(db.Integer, db.ForeignKey('residential_complex.id'), nullable=False)
+    photo_path = db.Column(db.String(512), nullable=False)  # Путь к файлу
+    photo_url = db.Column(db.String(512))  # URL фотографии
+    title = db.Column(db.String(255))  # Название/описание фото
+    is_main = db.Column(db.Boolean, default=False)  # Главное фото
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    complex = db.relationship('ResidentialComplex', backref='photos')
+
+
 class YandexNewBuilding(db.Model):
     __tablename__ = 'yandex_newbuildings'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -217,8 +231,10 @@ class PropertyYandexRating(db.Model):
 class PropertyYandexLink(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     property_id = db.Column(db.Integer, db.ForeignKey('property.id'), unique=True)
-    yandex_complex_name = db.Column(db.String(255))
+    yandex_building_id = db.Column(db.Integer, db.ForeignKey('yandex_newbuildings.id'))
+    yandex_complex_name = db.Column(db.String(255))  # Добавляем поле для имени комплекса
     property = db.relationship('Property', backref=db.backref('yandex_link', uselist=False))
+    yandex_building = db.relationship('YandexNewBuilding', backref=db.backref('property_links'))
 
 
 class PropertyGeneratedDescription(db.Model):
@@ -552,9 +568,15 @@ def load_data_from_csv():
                 }
 
                 if existing_property:
+                    # Сохраняем старую цену для отслеживания изменений
+                    old_price = existing_property.price
+                    
                     # Обновляем существующую запись
                     for key, value in property_data.items():
                         setattr(existing_property, key, value)
+                    
+                    # Логируем изменение цены
+                    check_and_log_price_change(existing_property, old_price, "csv_import")
                     updated_count += 1
                 else:
                     # Создаем новую запись
@@ -586,6 +608,8 @@ def load_data_from_csv():
         #         print(f"Ошибка при связывании объекта {prop.id} с адресом: {e}")
         # 
         # db.session.commit()
+        # Перенос контактов в новую таблицу после импорта
+        migrate_property_contacts()
         return True
     return False
 
@@ -619,6 +643,14 @@ def index():
 def admin():
     return render_template('admin.html')
 
+@app.route('/dashboard')
+def dashboard():
+    return render_template('dashboard.html')
+
+@app.route('/bulk-operations')
+def bulk_operations():
+    return render_template('bulk-operations.html')
+
 
 @app.route('/api/properties')
 def get_properties():
@@ -627,6 +659,7 @@ def get_properties():
     property_id = request.args.get('id', type=int)
     contacts_only = request.args.get('contacts_only', type=int)
     in_complex_only = request.args.get('in_complex_only', type=int)
+    in_sale_only = request.args.get('in_sale_only', type=int)
 
     # Если запрошен конкретный объект по ID
     if property_id:
@@ -766,6 +799,27 @@ def get_properties():
             Property.contacts != 'nan',
             Property.contacts != 'None'
         )
+    if in_sale_only:
+        # Фильтруем объекты, которые есть в продаже (есть связь с продавцами через UTM Term)
+        # Получаем все UTM Term из продавцов, которые не пустые
+        utm_terms = db.session.query(SellerContact.utm_term)\
+            .filter(SellerContact.utm_term.isnot(None))\
+            .filter(SellerContact.utm_term != '')\
+            .all()
+        
+        # Преобразуем в список ID объектов
+        property_ids = []
+        for (utm_term,) in utm_terms:
+            try:
+                property_ids.append(int(utm_term))
+            except (ValueError, TypeError):
+                continue
+        
+        if property_ids:
+            query = query.filter(Property.id.in_(property_ids))
+        else:
+            # Если нет валидных ID, возвращаем пустой результат
+            query = query.filter(Property.id == -1)
     if yandex_complex:
         # Фильтруем объекты по связанному ЖК через таблицу связей
         query = query.join(PropertyYandexLink).filter(
@@ -795,7 +849,7 @@ def get_properties():
                     Property.contacts.ilike(f'%{q}%'),
                     PropertyYandexLink.yandex_complex_name.ilike(f'%{q}%')
                 )
-            ).outerjoin(PropertyYandexLink, Property.id == PropertyYandexLink.property_id)
+            )
         else:
             # Поиск по адресу, контактам, ЖК
             query = query.filter(
@@ -804,7 +858,7 @@ def get_properties():
                     Property.contacts.ilike(f'%{q}%'),
                     PropertyYandexLink.yandex_complex_name.ilike(f'%{q}%')
                 )
-            ).outerjoin(PropertyYandexLink, Property.id == PropertyYandexLink.property_id)
+            )
 
     # Сортировка по ID в порядке убывания (новые сверху)
     query = query.order_by(Property.id.desc())
@@ -840,6 +894,11 @@ def get_properties():
         yandex_complex_name = None
         if prop.yandex_link:
             yandex_complex_name = prop.yandex_link.yandex_complex_name
+
+        # Проверяем, есть ли объект в продаже (есть ли связь с продавцами)
+        in_sale = SellerContact.query.filter(
+            SellerContact.utm_term == str(prop.id)
+        ).first() is not None
 
         # Аналогичные квартиры (same_flats)
         same_flats = []
@@ -893,6 +952,7 @@ def get_properties():
             'rating': prop.rating_obj.rating if getattr(prop, 'rating_obj', None) else None,
             'yandex_rating': prop.yandex_rating_obj.yandex_rating if getattr(prop, 'yandex_rating_obj', None) else None,
             'yandex_complex_name': yandex_complex_name,
+            'in_sale': in_sale,
             'same_flats': same_flats,
             'generated_description': prop.generated_description_obj.generated_description if getattr(prop,
                                                                                                      'generated_description_obj',
@@ -947,6 +1007,20 @@ def get_stats():
     in_complex = db.session.query(PropertyYandexLink.property_id).count()
     # Новое поле: количество объектов со сгенерированным описанием
     generated_description_count = PropertyGeneratedDescription.query.count()
+    # Новое поле: количество объектов в продаже
+    utm_terms = db.session.query(SellerContact.utm_term)\
+        .filter(SellerContact.utm_term.isnot(None))\
+        .filter(SellerContact.utm_term != '')\
+        .all()
+    
+    property_ids = []
+    for (utm_term,) in utm_terms:
+        try:
+            property_ids.append(int(utm_term))
+        except (ValueError, TypeError):
+            continue
+    
+    in_sale_count = Property.query.filter(Property.id.in_(property_ids)).count() if property_ids else 0
     return jsonify({
         'total_properties': total_properties,
         'phone_count': phone_count,
@@ -954,7 +1028,8 @@ def get_stats():
         'watermarks_removed': watermarks_removed,
         'with_address': with_address,
         'in_complex': in_complex,
-        'generated_description_count': generated_description_count
+        'generated_description_count': generated_description_count,
+        'in_sale_count': in_sale_count
     })
 
 
@@ -1000,7 +1075,7 @@ def geocode_property(property_id):
         return jsonify({'success': False, 'error': str(e)})
 
 
-@app.route('/api/geocode-all')
+@app.route('/api/geocode-all', methods=['GET', 'POST'])
 def geocode_all():
     """API endpoint для геокодирования всех объектов без адресов"""
     global STOP_GEOCODING_TASKS
@@ -1011,35 +1086,68 @@ def geocode_all():
             Property.longitude.isnot(None),
             Property.address_id.is_(None)
         ).all()
+        
+        total = len(properties_without_address)
+        print(f"🚀 Начинаем геокодирование объектов недвижимости. Всего найдено: {total}")
+        
+        if total == 0:
+            print("✅ Нет объектов для геокодирования (все уже имеют адреса)")
+            return jsonify({
+                'success': True,
+                'processed': 0,
+                'errors': 0,
+                'total': 0,
+                'stopped': False
+            })
+        
         processed = 0
         errors = 0
         error_403_count = 0
-        for prop in properties_without_address:
+        
+        for i, prop in enumerate(properties_without_address, 1):
             if STOP_GEOCODING_TASKS:
+                print(f"⏹️ Геокодирование остановлено пользователем на {i}/{total}")
                 break
+                
             try:
+                print(f"📍 Обрабатываем объект {prop.id} ({prop.title or 'Без названия'}) - {i}/{total}")
                 address = get_or_create_address(prop.latitude, prop.longitude)
                 if address:
                     prop.address_id = address.id
                     processed += 1
+                    print(f"✅ Объект {prop.id} успешно геокодирован: {address.dadata_address}")
                 else:
                     errors += 1
+                    print(f"❌ Объект {prop.id} - не удалось получить адрес")
             except Exception as e:
                 if '403' in str(e):
                     error_403_count += 1
+                    print(f"⚠️ Ошибка 403 для объекта {prop.id} (попытка {error_403_count}/10)")
                     if error_403_count >= 10:
                         STOP_GEOCODING_TASKS = True
+                        print("🛑 Превышен лимит ошибок 403, останавливаем геокодирование")
                         break
+                else:
+                    print(f"❌ Ошибка при геокодировании объекта {prop.id}: {e}")
                 errors += 1
+        
         db.session.commit()
+        
+        if STOP_GEOCODING_TASKS:
+            print(f"⏹️ Геокодирование остановлено. Обработано: {processed}, ошибок: {errors}")
+        else:
+            print(f"🎉 Геокодирование завершено!")
+            print(f"📊 Результаты: обработано {processed}, ошибок {errors}, всего {total}")
+        
         return jsonify({
             'success': not STOP_GEOCODING_TASKS,
             'processed': processed,
             'errors': errors,
-            'total': len(properties_without_address),
+            'total': total,
             'stopped': STOP_GEOCODING_TASKS
         })
     except Exception as e:
+        print(f"💥 Критическая ошибка при геокодировании: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 
@@ -1217,38 +1325,63 @@ def get_complexes():
 
 @app.route('/complexes')
 def complexes_page():
-    return render_template('admin.html')
+    return render_template('complexes.html')
 
 
-@app.route('/api/geocode-all-complexes')
+@app.route('/api/geocode-all-complexes', methods=['GET', 'POST'])
 def geocode_all_complexes():
+    print("🎯 Эндпоинт /api/geocode-all-complexes вызван!")
+    print(f"📝 Метод запроса: {request.method}")
     try:
         complexes = ResidentialComplex.query.filter(
             ResidentialComplex.latitude.isnot(None),
             ResidentialComplex.longitude.isnot(None),
             ResidentialComplex.address_id.is_(None)
         ).all()
+        
+        total = len(complexes)
+        print(f"🚀 Начинаем геокодирование ЖК. Всего найдено: {total}")
+        
+        if total == 0:
+            print("✅ Нет ЖК для геокодирования (все уже имеют адреса)")
+            return jsonify({
+                'success': True,
+                'processed': 0,
+                'errors': 0,
+                'total': 0
+            })
+        
         processed = 0
         errors = 0
-        for c in complexes:
+        
+        for i, c in enumerate(complexes, 1):
             try:
+                print(f"📍 Обрабатываем ЖК {c.id} ({c.name or 'Без названия'}) - {i}/{total}")
                 address = get_or_create_address(c.latitude, c.longitude)
                 if address:
                     c.address_id = address.id
                     processed += 1
+                    print(f"✅ ЖК {c.id} успешно геокодирован: {address.dadata_address}")
                 else:
                     errors += 1
+                    print(f"❌ ЖК {c.id} - не удалось получить адрес")
             except Exception as e:
-                print(f"Ошибка при геокодировании ЖК {c.id}: {e}")
+                print(f"❌ Ошибка при геокодировании ЖК {c.id}: {e}")
                 errors += 1
+        
         db.session.commit()
+        
+        print(f"🎉 Геокодирование завершено!")
+        print(f"📊 Результаты: обработано {processed}, ошибок {errors}, всего {total}")
+        
         return jsonify({
             'success': True,
             'processed': processed,
             'errors': errors,
-            'total': len(complexes)
+            'total': total
         })
     except Exception as e:
+        print(f"💥 Критическая ошибка при геокодировании: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 
@@ -1399,9 +1532,66 @@ def get_yandex_newbuildings():
         query = query.filter(YandexNewBuilding.region == region)
     if search:
         query = query.filter(YandexNewBuilding.complex_name.ilike(f'%{search}%'))
-    pagination = query.order_by(YandexNewBuilding.id.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    # Используем JOIN для оптимизации подсчета связей
+    buildings_with_counts = db.session.query(
+        YandexNewBuilding,
+        db.func.count(PropertyYandexLink.id).label('linked_count')
+    ).outerjoin(PropertyYandexLink, YandexNewBuilding.id == PropertyYandexLink.yandex_building_id)
+    
+    # Применяем фильтры
+    if region:
+        buildings_with_counts = buildings_with_counts.filter(YandexNewBuilding.region == region)
+    if search:
+        buildings_with_counts = buildings_with_counts.filter(YandexNewBuilding.complex_name.ilike(f'%{search}%'))
+    
+    # Группируем и сортируем
+    buildings_with_counts = buildings_with_counts.group_by(YandexNewBuilding.id).order_by(
+        db.desc(db.func.count(PropertyYandexLink.id)),
+        db.desc(YandexNewBuilding.id)
+    )
+    
+    # Получаем общее количество для пагинации
+    total = buildings_with_counts.count()
+    pages = (total + per_page - 1) // per_page
+    
+    # Применяем пагинацию
+    paginated_buildings = buildings_with_counts.offset((page - 1) * per_page).limit(per_page).all()
     items = []
-    for yb in pagination.items:
+    for yb, linked_count in paginated_buildings:
+        # Проверяем, есть ли связанный ЖК с фотографиями
+        complex_photos = []
+        complex_name = None
+        linked_complex_id = None
+        
+        # Ищем ЖК с фотографиями по названию
+        if yb.complex_name:
+            complex_obj = ResidentialComplex.query.filter(
+                ResidentialComplex.name.ilike(f'%{yb.complex_name}%'),
+                ResidentialComplex.photo_url.isnot(None),
+                ResidentialComplex.photo_url != ''
+            ).first()
+            if complex_obj:
+                complex_name = complex_obj.name
+                linked_complex_id = complex_obj.id
+                complex_photos = [{
+                    'id': complex_obj.id,
+                    'photo_path': complex_obj.photo_url,
+                    'photo_url': complex_obj.photo_url,
+                    'title': f'Фото ЖК {complex_obj.name}',
+                    'is_main': True
+                }]
+        
+        # Также ищем ЖК по адресу для получения ID
+        if yb.address_id and not linked_complex_id:
+            address_complex = ResidentialComplex.query.filter_by(address_id=yb.address_id).first()
+            if address_complex:
+                linked_complex_id = address_complex.id
+                if not complex_name:
+                    complex_name = address_complex.name
+        
+        # Используем уже подсчитанное количество связей
+        linked_properties_count = linked_count or 0
+        
         items.append({
             'id': yb.id,
             'region': yb.region,
@@ -1413,12 +1603,16 @@ def get_yandex_newbuildings():
             'building_id': yb.building_id,
             'url': yb.url,
             'address_id': yb.address_id,
-            'dadata_address': yb.dadata_address.dadata_address if yb.dadata_address else None
+            'dadata_address': yb.dadata_address.dadata_address if yb.dadata_address else None,
+            'linked_complex_name': complex_name,
+            'linked_complex_id': linked_complex_id,
+            'complex_photos': complex_photos,
+            'linked_properties_count': linked_properties_count
         })
     return jsonify({
         'items': items,
-        'total': pagination.total,
-        'pages': pagination.pages,
+        'total': total,
+        'pages': pages,
         'current_page': page,
         'per_page': per_page
     })
@@ -1645,9 +1839,10 @@ def send_phone():
 @app.route('/api/yandex-linked-complexes')
 def get_yandex_linked_complexes():
     # Получить только те complex_name, у которых есть связанные объекты через таблицу связей
-    complexes = db.session.query(PropertyYandexLink.yandex_complex_name).distinct().all()
-    names = sorted({c[0] for c in complexes if c[0]})
-    return jsonify(names)
+    linked_complexes = db.session.query(YandexNewBuilding.complex_name).join(
+        PropertyYandexLink, YandexNewBuilding.complex_name == PropertyYandexLink.yandex_complex_name
+    ).distinct().all()
+    return jsonify([c[0] for c in linked_complexes])
 
 
 @app.route('/api/update-ratings', methods=['POST'])
@@ -1739,17 +1934,21 @@ def update_yandex_links():
     # Удаляем старые связи
     PropertyYandexLink.query.delete()
     db.session.commit()
-    # Явные JOIN-ы через ON
-    links = db.session.query(Property.id, YandexNewBuilding.complex_name) \
+    # Явные JOIN-ы через ON с получением названия комплекса
+    links = db.session.query(Property.id, YandexNewBuilding.id, YandexNewBuilding.complex_name) \
         .join(Address, Property.address_id == Address.id) \
         .join(YandexNewBuilding, YandexNewBuilding.address_id == Address.id) \
         .all()
     seen = set()
-    for property_id, complex_name in links:
+    for property_id, yandex_building_id, complex_name in links:
         if property_id in seen:
             continue
-        if complex_name:
-            link = PropertyYandexLink(property_id=property_id, yandex_complex_name=complex_name)
+        if yandex_building_id:
+            link = PropertyYandexLink(
+                property_id=property_id, 
+                yandex_building_id=yandex_building_id,
+                yandex_complex_name=complex_name  # Автоматически заполняем название
+            )
             db.session.add(link)
             seen.add(property_id)
     db.session.commit()
@@ -1769,10 +1968,9 @@ def objects_autocomplete():
     # Поиск по адресу
     addresses = Property.query.filter(Property.address.ilike(f'%{q}%')).limit(5).all()
     results['address'] = list({p.address for p in addresses if p.address})
-    # Поиск по ЖК
-    complexes = db.session.query(PropertyYandexLink.yandex_complex_name).filter(
-        PropertyYandexLink.yandex_complex_name.ilike(f'%{q}%')).limit(5).all()
-    results['complex'] = [c[0] for c in complexes if c[0]]
+    # Поиск по ЖК — сгруппировать и посчитать количество квартир, вернуть id
+    complexes = db.session.query(YandexNewBuilding.id, YandexNewBuilding.complex_name, db.func.count(Property.id)).join(PropertyYandexLink, YandexNewBuilding.id == PropertyYandexLink.yandex_building_id).join(Property, PropertyYandexLink.property_id == Property.id).filter(YandexNewBuilding.complex_name.ilike(f'%{q}%')).group_by(YandexNewBuilding.id, YandexNewBuilding.complex_name).limit(10).all()
+    results['complex'] = [{'id': c[0], 'name': c[1], 'count': c[2]} for c in complexes if c[1]]
     # Поиск по телефону
     import re
     phone_props = Property.query.filter(Property.contacts.ilike(f'%{q}%')).limit(5).all()
@@ -1892,13 +2090,1239 @@ def generate_property_description(content):
         return None
 
 
+class PropertyContact(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    property_id = db.Column(db.Integer, db.ForeignKey('property.id'), nullable=False)
+    contact = db.Column(db.Text)  # Оригинальная строка контакта
+    phone = db.Column(db.String(32), nullable=False)
+    name = db.Column(db.String(128))
+    property = db.relationship('Property', backref='contacts_list')
+
+
+def migrate_property_contacts():
+    import re
+    PropertyContact.query.delete()
+    db.session.commit()
+    properties = Property.query.all()
+    for prop in properties:
+        if not prop.contacts:
+            continue
+        # Разделяем по |
+        blocks = [b.strip() for b in prop.contacts.split('|') if b.strip()]
+        used_phones = set()
+        for block in blocks:
+            # Внутри блока ищем все Имя: ... и Телефон: ...
+            name_matches = re.findall(r'Имя[:\s]*([\wА-Яа-яЁё\- ]+)', block)
+            phone_matches = re.findall(r'(\d{10,15})', block)
+            # Если есть и имя, и телефон — связываем их по порядку
+            if phone_matches:
+                for idx, phone in enumerate(phone_matches):
+                    if phone in used_phones:
+                        continue
+                    name = name_matches[idx] if idx < len(name_matches) else None
+                    contact_str = block  # сохраняем исходный блок
+                    contact_obj = PropertyContact(
+                        property_id=prop.id,
+                        contact=contact_str,
+                        phone=phone,
+                        name=name
+                    )
+                    db.session.add(contact_obj)
+                    used_phones.add(phone)
+    db.session.commit()
+
+
+@app.route('/api/migrate-property-contacts', methods=['POST'])
+def api_migrate_property_contacts():
+    try:
+        migrate_property_contacts()
+        return jsonify({'success': True, 'message': 'Миграция контактов завершена'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+class TrendRoom(db.Model):
+    __tablename__ = 'trend_rooms'
+    id = db.Column(db.String, primary_key=True)  # _id
+    name = db.Column(db.String)
+    crm_id = db.Column(db.String)
+
+class TrendBuilder(db.Model):
+    __tablename__ = 'trend_builders'
+    id = db.Column(db.String, primary_key=True)  # _id
+    name = db.Column(db.String)
+    crm_id = db.Column(db.String)
+
+class TrendBuildingType(db.Model):
+    __tablename__ = 'trend_buildingtypes'
+    id = db.Column(db.String, primary_key=True)  # _id
+    name = db.Column(db.String)
+    crm_id = db.Column(db.String)
+
+class TrendFinishing(db.Model):
+    __tablename__ = 'trend_finishings'
+    id = db.Column(db.String, primary_key=True)  # _id
+    name = db.Column(db.String)
+    crm_id = db.Column(db.String)
+
+class TrendSubway(db.Model):
+    __tablename__ = 'trend_subways'
+    id = db.Column(db.String, primary_key=True)  # _id
+    name = db.Column(db.String)
+    crm_id = db.Column(db.String)
+
+class TrendRegion(db.Model):
+    __tablename__ = 'trend_regions'
+    id = db.Column(db.String, primary_key=True)  # _id
+    name = db.Column(db.String)
+    crm_id = db.Column(db.String)
+
+class TrendBlock(db.Model):
+    __tablename__ = 'trend_blocks'
+    id = db.Column(db.String, primary_key=True)  # _id
+    name = db.Column(db.String)
+    crm_id = db.Column(db.String)
+    district = db.Column(db.String)  # foreign key to region or district if needed
+    description = db.Column(db.Text)
+    # ... остальные поля ...
+
+# Для apartments и buildings только структура:
+class TrendApartment(db.Model):
+    __tablename__ = 'trend_apartments'
+    id = db.Column(db.String, primary_key=True)  # _id
+    area_balconies_total = db.Column(db.Float)
+    area_given = db.Column(db.Float)
+    area_kitchen = db.Column(db.Float)
+    area_rooms = db.Column(db.String)
+    area_rooms_total = db.Column(db.Float)
+    area_total = db.Column(db.Float)
+    block_address = db.Column(db.String)
+    block_builder = db.Column(db.String)
+    block_builder_name = db.Column(db.String)
+    block_city = db.Column(db.String)
+    block_crm_id = db.Column(db.String)
+    block_district = db.Column(db.String)
+    block_district_name = db.Column(db.String)
+    block_geometry_type = db.Column(db.String)
+    block_geometry_coordinates = db.Column(db.Text)  # JSON-строка
+    block_id = db.Column(db.String)
+    block_iscity = db.Column(db.Boolean)
+    block_name = db.Column(db.String)
+    block_renderer = db.Column(db.Text)  # JSON-строка (список)
+    block_subway = db.Column(db.Text)    # JSON-строка (список)
+    block_subway_name = db.Column(db.Text)  # JSON-строка (список)
+    building_bank = db.Column(db.Text)   # JSON-строка (список)
+    building_contract = db.Column(db.Text)  # JSON-строка (список)
+    building_deadline = db.Column(db.String)
+    building_id = db.Column(db.String)
+    building_installment = db.Column(db.Boolean)
+    building_mortgage = db.Column(db.Boolean)
+    building_name = db.Column(db.String)
+    building_queue = db.Column(db.String)
+    building_subsidy = db.Column(db.Boolean)
+    building_type = db.Column(db.String)
+    building_voen_mortgage = db.Column(db.Boolean)
+    finishing = db.Column(db.String)
+    floor = db.Column(db.Integer)
+    floors = db.Column(db.Integer)
+    height = db.Column(db.Float)
+    number = db.Column(db.String)
+    plan = db.Column(db.Text)  # JSON-строка (список)
+    price = db.Column(db.Float)
+    room = db.Column(db.Integer)
+    wc_count = db.Column(db.Integer)
+
+class TrendBuilding(db.Model):
+    __tablename__ = 'trend_buildings'
+    id = db.Column(db.String, primary_key=True)  # _id
+    crm_id = db.Column(db.String)
+    name = db.Column(db.String)
+    block_id = db.Column(db.String)
+    building_type = db.Column(db.String)
+    queue = db.Column(db.Integer)
+    subsidy = db.Column(db.Boolean)
+    deadline = db.Column(db.String)
+    deadline_key = db.Column(db.String)
+    # Адрес (JSON)
+    address_street = db.Column(db.String)
+    address_house = db.Column(db.String)
+    address_housing = db.Column(db.String)
+    address_street_en = db.Column(db.String)
+    address_house_en = db.Column(db.String)
+    address_housing_en = db.Column(db.String)
+    # Геометрия (JSON)
+    geometry_type = db.Column(db.String)
+    geometry_coordinates = db.Column(db.Text)  # JSON-строка
+    # Новое поле для связи с Address
+    address_id = db.Column(db.Integer, db.ForeignKey('address.id'))
+    dadata_address = db.relationship('Address', backref='trend_buildings')
+
+def import_trendagent_jsons():
+    import json
+    # Импорт rooms.json
+    with open('trendagent/krd/rooms.json', encoding='utf-8') as f:
+        TrendRoom.query.delete()
+        for item in json.load(f):
+            db.session.add(TrendRoom(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
+    # Импорт builders.json
+    with open('trendagent/krd/builders.json', encoding='utf-8') as f:
+        TrendBuilder.query.delete()
+        for item in json.load(f):
+            db.session.add(TrendBuilder(
+                id=item['_id'],
+                name=item.get('name'),
+                crm_id=str(item.get('crm_id')) if item.get('crm_id') is not None else None
+            ))
+    # Импорт buildingtypes.json
+    with open('trendagent/krd/buildingtypes.json', encoding='utf-8') as f:
+        TrendBuildingType.query.delete()
+        for item in json.load(f):
+            db.session.add(TrendBuildingType(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
+    # Импорт finishings.json
+    with open('trendagent/krd/finishings.json', encoding='utf-8') as f:
+        TrendFinishing.query.delete()
+        for item in json.load(f):
+            db.session.add(TrendFinishing(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
+    # Импорт subways.json
+    with open('trendagent/krd/subways.json', encoding='utf-8') as f:
+        TrendSubway.query.delete()
+        for item in json.load(f):
+            db.session.add(TrendSubway(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
+    # Импорт regions.json
+    with open('trendagent/krd/regions.json', encoding='utf-8') as f:
+        TrendRegion.query.delete()
+        for item in json.load(f):
+            db.session.add(TrendRegion(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
+    # Импорт blocks.json
+    with open('trendagent/krd/blocks.json', encoding='utf-8') as f:
+        TrendBlock.query.delete()
+        for item in json.load(f):
+            db.session.add(TrendBlock(
+                id=item['_id'],
+                name=item.get('name'),
+                crm_id=item.get('crm_id'),
+                district=item.get('district'),
+                description=item.get('description')
+            ))
+    # Импорт buildings.json (без удаления, с обновлением)
+    with open('trendagent/krd/buildings.json', encoding='utf-8') as f:
+        for item in json.load(f):
+            b = TrendBuilding.query.get(item['_id'])
+            if b:
+                b.crm_id = str(item.get('crm_id')) if item.get('crm_id') is not None else None
+                b.name = item.get('name')
+                b.block_id = item.get('block_id')
+                b.building_type = item.get('building_type')
+                b.queue = item.get('queue')
+                b.subsidy = bool(item.get('subsidy')) if item.get('subsidy') is not None else None
+                b.deadline = item.get('deadline')
+                b.deadline_key = item.get('deadline_key')
+                b.address_street = item.get('address', {}).get('street')
+                b.address_house = item.get('address', {}).get('house')
+                b.address_housing = item.get('address', {}).get('housing')
+                b.address_street_en = item.get('address', {}).get('street_en')
+                b.address_house_en = item.get('address', {}).get('house_en')
+                b.address_housing_en = item.get('address', {}).get('housing_en')
+                b.geometry_type = item.get('geometry', {}).get('type')
+                b.geometry_coordinates = json.dumps(item.get('geometry', {}).get('coordinates')) if item.get('geometry', {}).get('coordinates') is not None else None
+                # address_id не трогаем!
+            else:
+                db.session.add(TrendBuilding(
+                    id=item['_id'],
+                    crm_id=str(item.get('crm_id')) if item.get('crm_id') is not None else None,
+                    name=item.get('name'),
+                    block_id=item.get('block_id'),
+                    building_type=item.get('building_type'),
+                    queue=item.get('queue'),
+                    subsidy=bool(item.get('subsidy')) if item.get('subsidy') is not None else None,
+                    deadline=item.get('deadline'),
+                    deadline_key=item.get('deadline_key'),
+                    address_street=item.get('address', {}).get('street'),
+                    address_house=item.get('address', {}).get('house'),
+                    address_housing=item.get('address', {}).get('housing'),
+                    address_street_en=item.get('address', {}).get('street_en'),
+                    address_house_en=item.get('address', {}).get('house_en'),
+                    address_housing_en=item.get('address', {}).get('housing_en'),
+                    geometry_type=item.get('geometry', {}).get('type'),
+                    geometry_coordinates=json.dumps(item.get('geometry', {}).get('coordinates')) if item.get('geometry', {}).get('coordinates') is not None else None
+                    # address_id не задаём
+                ))
+    # Импорт apartments.json
+    with open('trendagent/krd/apartments.json', encoding='utf-8') as f:
+        TrendApartment.query.delete()
+        for item in json.load(f):
+            db.session.add(TrendApartment(
+                id=item['_id'],
+                area_balconies_total=item.get('area_balconies_total'),
+                area_given=item.get('area_given'),
+                area_kitchen=item.get('area_kitchen'),
+                area_rooms=item.get('area_rooms'),
+                area_rooms_total=item.get('area_rooms_total'),
+                area_total=item.get('area_total'),
+                block_address=item.get('block_address'),
+                block_builder=item.get('block_builder'),
+                block_builder_name=item.get('block_builder_name'),
+                block_city=item.get('block_city'),
+                block_crm_id=str(item.get('block_crm_id')) if item.get('block_crm_id') is not None else None,
+                block_district=item.get('block_district'),
+                block_district_name=item.get('block_district_name'),
+                block_geometry_type=item.get('block_geometry', {}).get('type'),
+                block_geometry_coordinates=json.dumps(item.get('block_geometry', {}).get('coordinates')) if item.get('block_geometry', {}).get('coordinates') is not None else None,
+                block_id=item.get('block_id'),
+                block_iscity=bool(item.get('block_iscity')) if item.get('block_iscity') is not None else None,
+                block_name=item.get('block_name'),
+                block_renderer=json.dumps(item.get('block_renderer')) if item.get('block_renderer') is not None else None,
+                block_subway=json.dumps(item.get('block_subway')) if item.get('block_subway') is not None else None,
+                block_subway_name=json.dumps(item.get('block_subway_name')) if item.get('block_subway_name') is not None else None,
+                building_bank=json.dumps(item.get('building_bank')) if item.get('building_bank') is not None else None,
+                building_contract=json.dumps(item.get('building_contract')) if item.get('building_contract') is not None else None,
+                building_deadline=item.get('building_deadline'),
+                building_id=item.get('building_id'),
+                building_installment=bool(item.get('building_installment')) if item.get('building_installment') is not None else None,
+                building_mortgage=bool(item.get('building_mortgage')) if item.get('building_mortgage') is not None else None,
+                building_name=item.get('building_name'),
+                building_queue=item.get('building_queue'),
+                building_subsidy=bool(item.get('building_subsidy')) if item.get('building_subsidy') is not None else None,
+                building_type=item.get('building_type'),
+                building_voen_mortgage=bool(item.get('building_voen_mortgage')) if item.get('building_voen_mortgage') is not None else None,
+                finishing=item.get('finishing'),
+                floor=item.get('floor'),
+                floors=item.get('floors'),
+                height=item.get('height'),
+                number=item.get('number'),
+                plan=json.dumps(item.get('plan')) if item.get('plan') is not None else None,
+                price=item.get('price'),
+                room=item.get('room'),
+                wc_count=item.get('wc_count')
+            ))
+    db.session.commit()
+
+@app.route('/api/import-trendagent', methods=['POST'])
+def api_import_trendagent():
+    try:
+        import_trendagent_jsons()
+        return jsonify({'success': True, 'message': 'Импорт завершен'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/trend-buildings')
+def trend_buildings_page():
+    return render_template('trend_buildings.html')
+
+@app.route('/api/trend-buildings')
+def api_trend_buildings():
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    search = request.args.get('search', '', type=str)
+    query = TrendBuilding.query
+    if search:
+        query = query.filter(
+            TrendBuilding.name.ilike(f'%{search}%') |
+            TrendBuilding.address_street.ilike(f'%{search}%')
+        )
+    pagination = query.order_by(TrendBuilding.id.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    items = []
+    for b in pagination.items:
+        items.append({
+            'id': b.id,
+            'crm_id': b.crm_id,
+            'name': b.name,
+            'block_id': b.block_id,
+            'building_type': b.building_type,
+            'queue': b.queue,
+            'subsidy': b.subsidy,
+            'deadline': b.deadline,
+            'deadline_key': b.deadline_key,
+            'address_street': b.address_street,
+            'address_house': b.address_house,
+            'address_housing': b.address_housing,
+            'address_street_en': b.address_street_en,
+            'address_house_en': b.address_house_en,
+            'address_housing_en': b.address_housing_en,
+            'geometry_type': b.geometry_type,
+            'geometry_coordinates': b.geometry_coordinates,
+            'address_id': b.address_id,
+            'dadata_address': {
+                'id': b.dadata_address.id,
+                'address': b.dadata_address.dadata_address,
+                'full_address': b.dadata_address.dadata_full_address,
+                'city': b.dadata_address.city,
+                'street': b.dadata_address.street,
+                'house': b.dadata_address.house
+            } if b.dadata_address else None
+        })
+    return jsonify({
+        'items': items,
+        'total': pagination.total,
+        'pages': pagination.pages,
+        'current_page': page,
+        'per_page': per_page
+    })
+
+def get_polygon_centroid(coords):
+    # coords: [[[lon, lat], ...]]
+    points = coords[0]
+    x = [p[0] for p in points]
+    y = [p[1] for p in points]
+    centroid_x = sum(x) / len(x)
+    centroid_y = sum(y) / len(y)
+    return centroid_x, centroid_y
+
+@app.route('/api/geocode-trend-building/<string:building_id>', methods=['POST'])
+def geocode_trend_building(building_id):
+    import json
+    b = TrendBuilding.query.get(building_id)
+    if not b:
+        return jsonify({'success': False, 'error': 'Здание не найдено'})
+    if not b.geometry_coordinates:
+        return jsonify({'success': False, 'error': 'Нет координат'})
+    try:
+        coords = json.loads(b.geometry_coordinates)
+        lon, lat = get_polygon_centroid(coords)
+        address = get_or_create_address(lat, lon)
+        if not address:
+            return jsonify({'success': False, 'error': 'Не удалось получить адрес'})
+        b.address_id = address.id
+        db.session.commit()
+        return jsonify({'success': True, 'address': {
+            'id': address.id,
+            'address': address.dadata_address,
+            'full_address': address.dadata_full_address,
+            'city': address.city,
+            'street': address.street,
+            'house': address.house
+        }})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/geocode-all-trend-buildings', methods=['POST'])
+def geocode_all_trend_buildings():
+    """API endpoint для массового геокодирования всех зданий TrendAgent"""
+    try:
+        # Получаем все здания, у которых есть координаты, но нет адреса
+        buildings = TrendBuilding.query.filter(
+            TrendBuilding.geometry_coordinates.isnot(None),
+            TrendBuilding.address_id.is_(None)
+        ).all()
+        
+        processed = 0
+        errors = 0
+        
+        for b in buildings:
+            try:
+                import json
+                coords = json.loads(b.geometry_coordinates)
+                lon, lat = get_polygon_centroid(coords)
+                address = get_or_create_address(lat, lon)
+                if address:
+                    b.address_id = address.id
+                    processed += 1
+                else:
+                    errors += 1
+            except Exception as e:
+                print(f"Ошибка при геокодировании здания {b.id}: {e}")
+                errors += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'processed': processed,
+            'errors': errors,
+            'total': len(buildings)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/properties-fast')
+def get_properties_fast():
+    """Оптимизированная версия API для быстрой загрузки объектов недвижимости"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    property_id = request.args.get('id', type=int)
+    contacts_only = request.args.get('contacts_only', type=int)
+    in_complex_only = request.args.get('in_complex_only', type=int)
+    in_sale_only = request.args.get('in_sale_only', type=int)
+    
+    # Если запрошен конкретный объект по ID - используем старый API
+    if property_id:
+        return get_properties()
+    
+    # Базовый запрос с предварительной загрузкой связанных данных
+    query = Property.query.options(
+        db.joinedload(Property.dadata_address),
+        db.joinedload(Property.antiznak_status),
+        db.joinedload(Property.rating_obj),
+        db.joinedload(Property.yandex_rating_obj),
+        db.joinedload(Property.yandex_link),
+        db.joinedload(Property.generated_description_obj)
+    )
+    
+    # Фильтры
+    price_min = request.args.get('price_min', type=float)
+    price_max = request.args.get('price_max', type=float)
+    area_min = request.args.get('area_min', type=float)
+    area_max = request.args.get('area_max', type=float)
+    rooms = request.args.get('rooms', type=int)
+    address = request.args.get('address', '')
+    filter_id = request.args.get('id', type=int)
+    yandex_complex = request.args.get('yandex_complex', type=str)
+    rating_min = request.args.get('rating_min', type=int)
+    rating_max = request.args.get('rating_max', type=int)
+    yandex_rating_min = request.args.get('yandex_rating_min', type=int)
+    yandex_rating_max = request.args.get('yandex_rating_max', type=int)
+    q = request.args.get('q', '').strip()
+    
+    # Применяем фильтры
+    if in_complex_only:
+        query = query.join(PropertyYandexLink)
+    if filter_id is not None:
+        query = query.filter(Property.id == filter_id)
+    if price_min is not None:
+        query = query.filter(Property.price >= price_min)
+    if price_max is not None:
+        query = query.filter(Property.price <= price_max)
+    if area_min is not None:
+        query = query.filter(Property.total_area >= area_min)
+    if area_max is not None:
+        query = query.filter(Property.total_area <= area_max)
+    if rooms is not None:
+        query = query.filter(Property.rooms_count == rooms)
+    if address:
+        query = query.filter(Property.address.contains(address))
+    if contacts_only:
+        query = query.filter(
+            Property.contacts.isnot(None),
+            Property.contacts != '',
+            Property.contacts != 'nan',
+            Property.contacts != 'None'
+        )
+    if in_sale_only:
+        # Фильтруем объекты, которые есть в продаже
+        utm_terms = db.session.query(SellerContact.utm_term)\
+            .filter(SellerContact.utm_term.isnot(None))\
+            .filter(SellerContact.utm_term != '')\
+            .all()
+        
+        property_ids = []
+        for (utm_term,) in utm_terms:
+            try:
+                property_ids.append(int(utm_term))
+            except (ValueError, TypeError):
+                continue
+        
+        if property_ids:
+            query = query.filter(Property.id.in_(property_ids))
+        else:
+            query = query.filter(Property.id == -1)
+    if yandex_complex:
+        query = query.join(PropertyYandexLink).filter(
+            PropertyYandexLink.yandex_complex_name.ilike(f'%{yandex_complex}%'))
+    if rating_min is not None or rating_max is not None:
+        query = query.outerjoin(PropertyRating, Property.id == PropertyRating.property_id)
+        if rating_min is not None:
+            query = query.filter(PropertyRating.rating >= rating_min)
+        if rating_max is not None:
+            query = query.filter(PropertyRating.rating <= rating_max)
+    if yandex_rating_min is not None or yandex_rating_max is not None:
+        query = query.outerjoin(PropertyYandexRating, Property.id == PropertyYandexRating.property_id)
+        if yandex_rating_min is not None:
+            query = query.filter(PropertyYandexRating.yandex_rating >= yandex_rating_min)
+        if yandex_rating_max is not None:
+            query = query.filter(PropertyYandexRating.yandex_rating <= yandex_rating_max)
+    
+    # Поиск
+    if q:
+        if q.isdigit():
+            query = query.filter(
+                db.or_(
+                    Property.id == int(q),
+                    Property.address.ilike(f'%{q}%'),
+                    Property.contacts.ilike(f'%{q}%'),
+                    PropertyYandexLink.yandex_complex_name.ilike(f'%{q}%')
+                )
+            )
+        else:
+            query = query.filter(
+                db.or_(
+                    Property.address.ilike(f'%{q}%'),
+                    Property.contacts.ilike(f'%{q}%'),
+                    PropertyYandexLink.yandex_complex_name.ilike(f'%{q}%')
+                )
+            )
+    
+    # Сортировка и пагинация
+    pagination = query.order_by(Property.id.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    
+    # Получаем все ID объектов для массовых запросов
+    property_ids = [prop.id for prop in pagination.items]
+    
+    # Массовые запросы для связанных данных
+    # 1. Получаем все телефоны, отправленные в КЦ
+    sent_phones = set()
+    if property_ids:
+        phone_query = db.session.query(Lead2CallLog.phone).filter(
+            Lead2CallLog.status == 'success'
+        ).all()
+        sent_phones = {phone[0] for phone in phone_query}
+    
+    # 2. Получаем все объекты в продаже
+    in_sale_ids = set()
+    if property_ids:
+        sale_query = db.session.query(SellerContact.utm_term).filter(
+            SellerContact.utm_term.in_([str(pid) for pid in property_ids])
+        ).all()
+        in_sale_ids = {int(utm[0]) for utm in sale_query if utm[0].isdigit()}
+    
+    # Формируем ответ
+    properties = []
+    for prop in pagination.items:
+        sent_to_callcenter = False
+        if prop.contacts:
+            import re
+            phone_match = re.search(r'(\+?\d{10,15})', prop.contacts)
+            if phone_match:
+                phone = phone_match.group(1)
+                sent_to_callcenter = phone in sent_phones
+        in_sale = prop.id in in_sale_ids
+        address_info = None
+        if prop.dadata_address:
+            address_info = {
+                'id': prop.dadata_address.id,
+                'address': prop.dadata_address.dadata_address,
+                'full_address': prop.dadata_address.dadata_full_address,
+                'city': prop.dadata_address.city,
+                'street': prop.dadata_address.street,
+                'house': prop.dadata_address.house
+            }
+        antiznak_photos = []
+        if prop.antiznak_status and prop.antiznak_status.photos:
+            try:
+                photos = json.loads(prop.antiznak_status.photos)
+                antiznak_photos = [p.replace('\\', '/').replace('\\', '/') for p in photos]
+            except Exception:
+                pass
+        # --- Новый блок для получения названия ЖК из yandex_newbuildings ---
+        yandex_complex_name = None
+        if prop.yandex_link and prop.yandex_link.yandex_building:
+            yandex_complex_name = prop.yandex_link.yandex_building.complex_name
+        elif prop.yandex_link:
+            yandex_complex_name = prop.yandex_link.yandex_complex_name
+        # ---
+        properties.append({
+            'id': prop.id,
+            'title': prop.title or 'Без названия',
+            'address': prop.address or 'Адрес не указан',
+            'price': prop.price,
+            'total_area': prop.total_area,
+            'rooms_count': prop.rooms_count,
+            'floor': prop.floor,
+            'total_floors': prop.total_floors,
+            'construction_year': prop.construction_year,
+            'content': prop.content or '',
+            'images': prop.images or '',
+            'contacts': prop.contacts or '',
+            'price_per_sqm': prop.price_per_sqm,
+            'longitude': prop.longitude,
+            'latitude': prop.latitude,
+            'dadata_address': address_info,
+            'antiznak_photos': antiznak_photos,
+            'antiznak_status_status': getattr(prop.antiznak_status, 'status', None) if prop.antiznak_status else None,
+            'source_url': prop.source_url,
+            'sent_to_callcenter': sent_to_callcenter,
+            'rating': prop.rating_obj.rating if prop.rating_obj else None,
+            'yandex_rating': prop.yandex_rating_obj.yandex_rating if prop.yandex_rating_obj else None,
+            'yandex_complex_name': yandex_complex_name,
+            'in_sale': in_sale,
+            'generated_description': prop.generated_description_obj.generated_description if prop.generated_description_obj else None
+        })
+    
+    return jsonify({
+        'properties': properties,
+        'total': pagination.total,
+        'pages': pagination.pages,
+        'current_page': page,
+        'per_page': per_page
+    })
+
+
+@app.route('/api/complex-photos/<int:address_id>')
+def get_complex_photos(address_id):
+    """Получить фотографии ЖК по адресу"""
+    try:
+        # Находим ЖК с этим адресом
+        complex_obj = ResidentialComplex.query.filter_by(address_id=address_id).first()
+        if not complex_obj:
+            return jsonify({'photos': [], 'complex_name': None})
+        
+        # Получаем фотографии ЖК
+        photos = ComplexPhoto.query.filter_by(complex_id=complex_obj.id).order_by(
+            ComplexPhoto.is_main.desc(), ComplexPhoto.created_at.desc()
+        ).all()
+        
+        photo_list = []
+        for photo in photos:
+            photo_list.append({
+                'id': photo.id,
+                'photo_path': photo.photo_path,
+                'photo_url': photo.photo_url,
+                'title': photo.title,
+                'is_main': photo.is_main,
+                'created_at': photo.created_at.isoformat() if photo.created_at else None
+            })
+        
+        return jsonify({
+            'photos': photo_list,
+            'complex_name': complex_obj.name,
+            'complex_id': complex_obj.id,
+            'address': complex_obj.address
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/add-complex-photo', methods=['POST'])
+def add_complex_photo():
+    """Добавить фотографию к ЖК"""
+    try:
+        data = request.get_json()
+        complex_id = data.get('complex_id')
+        photo_path = data.get('photo_path')
+        photo_url = data.get('photo_url')
+        title = data.get('title', '')
+        is_main = data.get('is_main', False)
+        
+        if not complex_id or not photo_path:
+            return jsonify({'success': False, 'error': 'Не указан complex_id или photo_path'})
+        
+        # Если это главное фото, снимаем флаг с других
+        if is_main:
+            ComplexPhoto.query.filter_by(complex_id=complex_id, is_main=True).update({'is_main': False})
+        
+        photo = ComplexPhoto(
+            complex_id=complex_id,
+            photo_path=photo_path,
+            photo_url=photo_url,
+            title=title,
+            is_main=is_main
+        )
+        db.session.add(photo)
+        db.session.commit()
+        
+        return jsonify({'success': True, 'photo_id': photo.id})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/add-complex-photos-from-folder', methods=['POST'])
+def add_complex_photos_from_folder():
+    """Добавить фотографии к ЖК из папки"""
+    import os
+    import glob
+    
+    try:
+        data = request.get_json()
+        complex_id = data.get('complex_id')
+        photos_path = data.get('photos_path')
+        photo_title = data.get('photo_title', '')
+        is_main = data.get('is_main', False)
+        
+        if not complex_id or not photos_path:
+            return jsonify({'success': False, 'error': 'Не указан complex_id или photos_path'})
+        
+        # Проверяем существование папки
+        if not os.path.exists(photos_path):
+            return jsonify({'success': False, 'error': f'Папка не найдена: {photos_path}'})
+        
+        # Ищем все изображения в папке
+        image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.gif', '*.bmp', '*.webp']
+        image_files = []
+        for ext in image_extensions:
+            image_files.extend(glob.glob(os.path.join(photos_path, ext)))
+            image_files.extend(glob.glob(os.path.join(photos_path, ext.upper())))
+        
+        if not image_files:
+            return jsonify({'success': False, 'error': f'В папке не найдены изображения: {photos_path}'})
+        
+        # Сортируем файлы по имени
+        image_files.sort()
+        
+        # Если это главное фото, снимаем флаг с других
+        if is_main:
+            ComplexPhoto.query.filter_by(complex_id=complex_id, is_main=True).update({'is_main': False})
+        
+        added_photos = []
+        for i, image_file in enumerate(image_files):
+            # Создаем относительный путь для веб-доступа
+            relative_path = os.path.relpath(image_file, os.getcwd())
+            web_path = f'/{relative_path.replace(os.sep, "/")}'
+            
+            # Определяем, является ли это главным фото
+            is_main_photo = is_main and i == 0
+            
+            photo = ComplexPhoto(
+                complex_id=complex_id,
+                photo_path=web_path,
+                photo_url=web_path,
+                title=f"{photo_title} - фото {i+1}" if photo_title else f"Фото {i+1}",
+                is_main=is_main_photo
+            )
+            db.session.add(photo)
+            added_photos.append({
+                'id': photo.id,
+                'path': web_path,
+                'title': photo.title,
+                'is_main': is_main_photo
+            })
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True, 
+            'added_count': len(added_photos),
+            'photos': added_photos
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/export-properties-csv')
+def export_properties_csv():
+    """Экспорт объектов недвижимости в CSV"""
+    try:
+        print("🎯 Начинаем экспорт CSV")
+        
+        # Получаем все параметры фильтрации из запроса
+        q = request.args.get('q', '').strip()
+        contacts_only = request.args.get('contacts_only', '0') == '1'
+        in_sale_only = request.args.get('in_sale_only', '0') == '1'
+        yandex_complex = request.args.get('yandex_complex', '').strip()
+        price_min = request.args.get('price_min', type=float)
+        price_max = request.args.get('price_max', type=float)
+        area_min = request.args.get('area_min', type=float)
+        area_max = request.args.get('area_max', type=float)
+        rooms = request.args.get('rooms', type=int)
+        rating_min = request.args.get('rating_min', type=int)
+        rating_max = request.args.get('rating_max', type=int)
+        yandex_rating_min = request.args.get('yandex_rating_min', type=int)
+        yandex_rating_max = request.args.get('yandex_rating_max', type=int)
+        in_complex_only = request.args.get('in_complex_only', type=int)
+        yandex_building_id = request.args.get('yandex_building_id', type=int)
+        
+        print(f"📝 Параметры фильтрации: q='{q}', contacts_only={contacts_only}, in_sale_only={in_sale_only}, yandex_complex='{yandex_complex}', price_min={price_min}, price_max={price_max}")
+        
+        # Упрощаем запрос - начинаем только с Property
+        query = db.session.query(Property)
+        
+        # Добавляем JOIN с Address только если нужен
+        if any([q, price_min is not None, price_max is not None, area_min is not None, area_max is not None, rooms is not None]):
+            query = query.outerjoin(Address, Property.address_id == Address.id)
+        
+        # Добавляем JOIN с PropertyYandexLink только если нужен
+        if any([yandex_complex, in_complex_only, yandex_building_id, yandex_rating_min is not None, yandex_rating_max is not None]):
+            query = query.outerjoin(PropertyYandexLink, Property.id == PropertyYandexLink.property_id)
+            if yandex_building_id:
+                query = query.outerjoin(YandexNewBuilding, PropertyYandexLink.yandex_building_id == YandexNewBuilding.id)
+
+        # Применяем фильтры
+        if q:
+            if q.isdigit():
+                query = query.filter(
+                    or_(
+                        Property.id == int(q),
+                        Property.address.ilike(f'%{q}%'),
+                        Property.contacts.ilike(f'%{q}%')
+                    )
+                )
+            else:
+                query = query.filter(
+                    or_(
+                        Property.address.ilike(f'%{q}%'),
+                        Property.contacts.ilike(f'%{q}%')
+                    )
+                )
+        
+        if contacts_only:
+            query = query.filter(
+                Property.contacts.isnot(None),
+                Property.contacts != '',
+                Property.contacts != 'nan',
+                Property.contacts != 'None'
+            )
+        
+        if in_sale_only:
+            # Фильтруем объекты, которые есть в продаже
+            utm_terms = db.session.query(SellerContact.utm_term)\
+                .filter(SellerContact.utm_term.isnot(None))\
+                .filter(SellerContact.utm_term != '')\
+                .all()
+            
+            property_ids = []
+            for (utm_term,) in utm_terms:
+                try:
+                    property_ids.append(int(utm_term))
+                except (ValueError, TypeError):
+                    continue
+            
+            if property_ids:
+                query = query.filter(Property.id.in_(property_ids))
+            else:
+                query = query.filter(Property.id == -1)
+        
+        if yandex_complex:
+            # Добавляем JOIN если его еще нет
+            if not any([yandex_complex, in_complex_only, yandex_building_id, yandex_rating_min is not None, yandex_rating_max is not None]):
+                query = query.outerjoin(PropertyYandexLink, Property.id == PropertyYandexLink.property_id)
+            query = query.filter(PropertyYandexLink.yandex_complex_name.ilike(f'%{yandex_complex}%'))
+        
+        if price_min is not None:
+            query = query.filter(Property.price >= price_min)
+        
+        if price_max is not None:
+            query = query.filter(Property.price <= price_max)
+        
+        if area_min is not None:
+            query = query.filter(Property.total_area >= area_min)
+        
+        if area_max is not None:
+            query = query.filter(Property.total_area <= area_max)
+        
+        if rooms is not None:
+            query = query.filter(Property.rooms_count == rooms)
+        
+        if in_complex_only:
+            # Добавляем JOIN если его еще нет
+            if not any([yandex_complex, in_complex_only, yandex_building_id, yandex_rating_min is not None, yandex_rating_max is not None]):
+                query = query.outerjoin(PropertyYandexLink, Property.id == PropertyYandexLink.property_id)
+            query = query.filter(PropertyYandexLink.property_id.isnot(None))
+        
+        if rating_min is not None or rating_max is not None:
+            query = query.outerjoin(PropertyRating, Property.id == PropertyRating.property_id)
+            if rating_min is not None:
+                query = query.filter(PropertyRating.rating >= rating_min)
+            if rating_max is not None:
+                query = query.filter(PropertyRating.rating <= rating_max)
+        
+        if yandex_rating_min is not None or yandex_rating_max is not None:
+            # Добавляем JOIN если его еще нет
+            if not any([yandex_complex, in_complex_only, yandex_building_id, yandex_rating_min is not None, yandex_rating_max is not None]):
+                query = query.outerjoin(PropertyYandexLink, Property.id == PropertyYandexLink.property_id)
+            query = query.outerjoin(PropertyYandexRating, Property.id == PropertyYandexRating.property_id)
+            if yandex_rating_min is not None:
+                query = query.filter(PropertyYandexRating.yandex_rating >= yandex_rating_min)
+            if yandex_rating_max is not None:
+                query = query.filter(PropertyYandexRating.yandex_rating <= yandex_rating_max)
+        
+        if yandex_building_id:
+            # Добавляем JOIN если его еще нет
+            if not any([yandex_complex, in_complex_only, yandex_building_id, yandex_rating_min is not None, yandex_rating_max is not None]):
+                query = query.outerjoin(PropertyYandexLink, Property.id == PropertyYandexLink.property_id)
+            query = query.filter(PropertyYandexLink.yandex_building_id == yandex_building_id)
+        
+        # Проверяем, есть ли фильтры
+        has_filters = bool(q or contacts_only or in_sale_only or yandex_complex or 
+                          price_min is not None or price_max is not None or 
+                          area_min is not None or area_max is not None or 
+                          rooms is not None or rating_min is not None or 
+                          rating_max is not None or yandex_rating_min is not None or 
+                          yandex_rating_max is not None or in_complex_only)
+        
+        if not has_filters:
+            print("⚠️ Нет фильтров - экспортируем все объекты")
+        else:
+            print(f"🔍 Экспортируем результаты поиска с фильтрами")
+        
+        properties = query.all()
+        print(f"📊 Найдено объектов для экспорта: {len(properties)}")
+        
+        # Отладочная информация
+        if len(properties) == 0:
+            print("⚠️ ВНИМАНИЕ: Запрос вернул 0 объектов!")
+            print(f"🔍 SQL запрос: {query}")
+            # Попробуем простой запрос без фильтров
+            simple_count = Property.query.count()
+            print(f"📈 Всего объектов в базе: {simple_count}")
+        
+        # Создаем CSV в памяти
+        output = StringIO()
+        writer = csv.writer(output, delimiter=';', quotechar='"', quoting=csv.QUOTE_ALL)
+        
+        # Заголовки
+        headers = [
+            'ID объекта',
+            'Адрес из address_id',
+            'Адрес (DaData)',
+            'Жилой комплекс',
+            'Цена',
+            'Площадь',
+            'Количество комнат',
+            'Этаж',
+            'Всего этажей',
+            'Заголовок',
+            'Описание',
+            'Ссылка на фото',
+            'Год постройки'
+        ]
+        writer.writerow(headers)
+        
+        # Данные
+        for i, prop in enumerate(properties, 1):
+            if i % 100 == 0:
+                print(f"📝 Обработано объектов: {i}/{len(properties)}")
+            
+            # Получаем связанный адрес
+            address = None
+            if prop.address_id:
+                address = Address.query.get(prop.address_id)
+            
+            # Получаем информацию о жилом комплексе
+            yandex_complex_name = ""
+            if prop and hasattr(prop, 'yandex_link') and prop.yandex_link:
+                yandex_complex_name = prop.yandex_link.yandex_complex_name or ""
+                if i <= 5:  # Отладочная информация для первых 5 объектов
+                    print(f"🔍 Объект {prop.id}: yandex_link={prop.yandex_link}, yandex_complex_name='{yandex_complex_name}'")
+            else:
+                if i <= 5:  # Отладочная информация для первых 5 объектов
+                    print(f"🔍 Объект {prop.id}: yandex_link отсутствует")
+            
+            photo_url = ""
+            if prop and hasattr(prop, 'id') and prop.id:
+                photo_files = []
+                for complex_name in ['antiznak']:
+                    photo_dir = os.path.join('photos', complex_name, str(prop.id))
+                    if os.path.exists(photo_dir):
+                        for file in os.listdir(photo_dir):
+                            if file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                                photo_files.append(f'/photos/{complex_name}/{prop.id}/{file}')
+                                break
+                if photo_files:
+                    photo_url = photo_files[0]
+            
+            dadata_address = ""
+            if address and hasattr(address, 'dadata_address') and address.dadata_address:
+                dadata_address = address.dadata_address
+            
+            generated_description = ""
+            if prop and hasattr(prop, 'generated_description_obj') and prop.generated_description_obj:
+                generated_description = prop.generated_description_obj.generated_description or ""
+            
+            description = generated_description or (getattr(prop, 'description', '') or "")
+            
+            row = [
+                getattr(prop, 'id', '') if prop else '',
+                getattr(address, 'address', '') if address else '',
+                dadata_address,
+                yandex_complex_name,
+                getattr(prop, 'price', '') if prop else '',
+                getattr(prop, 'total_area', '') if prop else '',
+                getattr(prop, 'rooms_count', '') if prop else '',
+                getattr(prop, 'floor', '') if prop else '',
+                getattr(prop, 'total_floors', '') if prop else '',
+                getattr(prop, 'title', '') if prop else '',
+                description,
+                photo_url,
+                getattr(prop, 'construction_year', '') if prop else ''
+            ]
+            
+            if not all([(str(x).strip() if x is not None else '') == '' for x in row]):
+                writer.writerow(row)
+                if i <= 5:  # Показываем первые 5 строк для отладки
+                    print(f"📝 Строка {i}: {row}")
+        
+        print(f"✅ CSV создан, записей: {len(properties)}")
+        
+        # Подготавливаем файл для отправки
+        output.seek(0)
+        
+        # Создаем временный файл
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False, encoding='utf-8-sig', newline='') as tmp_file:
+            tmp_file.write(output.getvalue())
+            tmp_file_path = tmp_file.name
+        
+        print(f"📁 Файл сохранен: {tmp_file_path}")
+        
+        return send_file(
+            tmp_file_path,
+            as_attachment=True,
+            download_name=f'properties_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv',
+            mimetype='text/csv'
+        )
+        
+    except Exception as e:
+        import traceback
+        print(f"❌ Ошибка экспорта в CSV: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+class PriceHistory(db.Model):
+    """Таблица для отслеживания изменений цены объектов недвижимости"""
+    __tablename__ = 'price_history'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    property_id = db.Column(db.Integer, db.ForeignKey('property.id'), nullable=False)
+    old_price = db.Column(db.Float)  # Старая цена
+    new_price = db.Column(db.Float, nullable=False)  # Новая цена
+    price_change = db.Column(db.Float)  # Разница в цене (new_price - old_price)
+    change_percent = db.Column(db.Float)  # Процент изменения
+    changed_by = db.Column(db.String(100), default="system")  # Кто изменил
+    changed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Связь с объектом недвижимости
+    property = db.relationship('Property', backref='price_history')
+
+
+def log_price_change(property_id, old_price, new_price, changed_by="system"):
+    """Логирует изменение цены объекта недвижимости"""
+    try:
+        if old_price is None:
+            old_price = 0
+        
+        price_change = new_price - old_price if old_price else 0
+        change_percent = ((new_price - old_price) / old_price * 100) if old_price and old_price > 0 else 0
+        
+        price_record = PriceHistory(
+            property_id=property_id,
+            old_price=old_price,
+            new_price=new_price,
+            price_change=price_change,
+            change_percent=change_percent,
+            changed_by=changed_by
+        )
+        db.session.add(price_record)
+        db.session.commit()
+        
+        change_symbol = "📈" if price_change > 0 else "📉" if price_change < 0 else "➡️"
+        print(f"{change_symbol} Изменение цены объекта {property_id}: {old_price:,} → {new_price:,} ₽ ({change_percent:+.1f}%)")
+    except Exception as e:
+        print(f"❌ Ошибка при записи изменения цены: {e}")
+        db.session.rollback()
+
+
+def check_and_log_price_change(property_obj, old_price, changed_by="system"):
+    """Проверяет и логирует изменение цены объекта"""
+    if property_obj.price != old_price:
+        log_price_change(property_obj.id, old_price, property_obj.price, changed_by)
+
+
+
+
+
+@app.route('/api/price-history/<int:property_id>')
+def get_price_history(property_id):
+    """Получить историю изменений цены объекта недвижимости"""
+    try:
+        price_records = PriceHistory.query.filter_by(property_id=property_id)\
+            .order_by(PriceHistory.changed_at.desc()).all()
+        
+        result = []
+        for record in price_records:
+            result.append({
+                'id': record.id,
+                'old_price': record.old_price,
+                'new_price': record.new_price,
+                'price_change': record.price_change,
+                'change_percent': record.change_percent,
+                'changed_by': record.changed_by,
+                'changed_at': record.changed_at.isoformat() if record.changed_at else None
+            })
+        
+        return jsonify({
+            'success': True,
+            'property_id': property_id,
+            'price_history': result,
+            'total_records': len(result)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/recent-price-changes')
+def get_recent_price_changes():
+    """Получить последние изменения цен по всем объектам"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        days = request.args.get('days', 7, type=int)
+        
+        from datetime import timedelta
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        
+        price_records = PriceHistory.query\
+            .filter(PriceHistory.changed_at >= cutoff_date)\
+            .order_by(PriceHistory.changed_at.desc())\
+            .limit(limit).all()
+        
+        result = []
+        for record in price_records:
+            result.append({
+                'id': record.id,
+                'property_id': record.property_id,
+                'old_price': record.old_price,
+                'new_price': record.new_price,
+                'price_change': record.price_change,
+                'change_percent': record.change_percent,
+                'changed_by': record.changed_by,
+                'changed_at': record.changed_at.isoformat() if record.changed_at else None
+            })
+        
+        return jsonify({
+            'success': True,
+            'price_changes': result,
+            'total_records': len(result)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/api/price-statistics')
+def get_price_statistics():
+    """Получить статистику по изменениям цен"""
+    try:
+        days = request.args.get('days', 30, type=int)
+        
+        from datetime import timedelta
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        
+        # Общая статистика
+        total_changes = PriceHistory.query.filter(PriceHistory.changed_at >= cutoff_date).count()
+        price_increases = PriceHistory.query.filter(
+            PriceHistory.changed_at >= cutoff_date,
+            PriceHistory.price_change > 0
+        ).count()
+        price_decreases = PriceHistory.query.filter(
+            PriceHistory.changed_at >= cutoff_date,
+            PriceHistory.price_change < 0
+        ).count()
+        
+        # Средние изменения
+        avg_increase = db.session.query(db.func.avg(PriceHistory.change_percent))\
+            .filter(PriceHistory.changed_at >= cutoff_date, PriceHistory.price_change > 0).scalar() or 0
+        avg_decrease = db.session.query(db.func.avg(PriceHistory.change_percent))\
+            .filter(PriceHistory.changed_at >= cutoff_date, PriceHistory.price_change < 0).scalar() or 0
+        
+        return jsonify({
+            'success': True,
+            'statistics': {
+                'total_changes': total_changes,
+                'price_increases': price_increases,
+                'price_decreases': price_decreases,
+                'avg_increase_percent': round(avg_increase, 1),
+                'avg_decrease_percent': round(avg_decrease, 1),
+                'period_days': days
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
 if __name__ == '__main__':
     with app.app_context():
-        # Удаляем все таблицы и создаем заново
         db.create_all()
-
         # Автоматически загружаем данные при первом запуске
         if Property.query.count() == 0:
             load_data_from_csv()
-
     app.run(debug=True, host='0.0.0.0', port=5000)

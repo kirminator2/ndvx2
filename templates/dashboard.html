@@ -1,0 +1,374 @@
+{% extends 'base.html' %}
+
+{% block title %}Дашборд - Статистика{% endblock %}
+
+{% block head %}
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+            transition: transform 0.2s;
+        }
+        .stats-card:hover {
+            transform: translateY(-2px);
+        }
+        .stats-card h5 {
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+        .stats-card h3 {
+            font-size: 2rem;
+            margin-bottom: 0;
+        }
+        .chart-container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .recent-changes {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .change-item {
+            border-bottom: 1px solid #eee;
+            padding: 10px 0;
+        }
+        .change-item:last-child {
+            border-bottom: none;
+        }
+        .price-increase {
+            color: #28a745;
+        }
+        .price-decrease {
+            color: #dc3545;
+        }
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            min-width: 300px;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <h2 class="mb-4">
+                <i class="fas fa-chart-line me-2"></i>Дашборд - Статистика
+            </h2>
+            
+            <!-- Основная статистика -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h5>Всего объектов</h5>
+                        <h3 id="total-properties">
+                            <span class="spinner-border spinner-border-sm text-light" role="status"></span>
+                        </h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h5>С контактами</h5>
+                        <h3 id="phone-count">
+                            <span class="spinner-border spinner-border-sm text-light" role="status"></span>
+                        </h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h5>С адресами</h5>
+                        <h3 id="with-address">
+                            <span class="spinner-border spinner-border-sm text-light" role="status"></span>
+                        </h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h5>В ЖК</h5>
+                        <h3 id="in-complex">
+                            <span class="spinner-border spinner-border-sm text-light" role="status"></span>
+                        </h3>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h5>В продаже</h5>
+                        <h3 id="in-sale-count">
+                            <span class="spinner-border spinner-border-sm text-light" role="status"></span>
+                        </h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h5>С фото</h5>
+                        <h3 id="watermarks-removed">
+                            <span class="spinner-border spinner-border-sm text-light" role="status"></span>
+                        </h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h5>С описанием</h5>
+                        <h3 id="generated-description-count">
+                            <span class="spinner-border spinner-border-sm text-light" role="status"></span>
+                        </h3>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h5>В КЦ</h5>
+                        <h3 id="sent-to-cc">
+                            <span class="spinner-border spinner-border-sm text-light" role="status"></span>
+                        </h3>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Графики -->
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="chart-container">
+                        <h5>Распределение по районам</h5>
+                        <canvas id="districtsChart"></canvas>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="chart-container">
+                        <h5>Распределение по цене</h5>
+                        <canvas id="priceChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Недавние изменения цен -->
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="recent-changes">
+                        <h5>Недавние изменения цен</h5>
+                        <div id="recent-changes-list">
+                            <div class="text-center">
+                                <span class="spinner-border spinner-border-sm" role="status"></span>
+                                Загрузка...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="recent-changes">
+                        <h5>Статистика цен</h5>
+                        <div id="price-statistics">
+                            <div class="text-center">
+                                <span class="spinner-border spinner-border-sm" role="status"></span>
+                                Загрузка...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast уведомления -->
+<div id="toast-container"></div>
+
+<script>
+// Загрузка статистики
+async function loadStats() {
+    try {
+        const response = await fetch('/api/stats');
+        const data = await response.json();
+        
+        document.getElementById('total-properties').textContent = data.total_properties || 0;
+        document.getElementById('phone-count').textContent = data.phone_count || 0;
+        document.getElementById('with-address').textContent = data.with_address || 0;
+        document.getElementById('in-complex').textContent = data.in_complex || 0;
+        document.getElementById('in-sale-count').textContent = data.in_sale_count || 0;
+        document.getElementById('watermarks-removed').textContent = data.watermarks_removed || 0;
+        document.getElementById('generated-description-count').textContent = data.generated_description_count || 0;
+        document.getElementById('sent-to-cc').textContent = data.sent_to_callcenter || 0;
+    } catch (error) {
+        console.error('Ошибка загрузки статистики:', error);
+    }
+}
+
+// Загрузка недавних изменений цен
+async function loadRecentChanges() {
+    try {
+        const response = await fetch('/api/recent-price-changes');
+        const data = await response.json();
+        
+        const container = document.getElementById('recent-changes-list');
+        if (data.changes && data.changes.length > 0) {
+            let html = '';
+            data.changes.forEach(change => {
+                const changeClass = change.price_change > 0 ? 'price-increase' : 'price-decrease';
+                const changeIcon = change.price_change > 0 ? 'fa-arrow-up' : 'fa-arrow-down';
+                html += `
+                    <div class="change-item">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>ID ${change.property_id}</strong><br>
+                                <small class="text-muted">${change.changed_at}</small>
+                            </div>
+                            <div class="text-end">
+                                <div class="${changeClass}">
+                                    <i class="fas ${changeIcon} me-1"></i>
+                                    ${change.price_change > 0 ? '+' : ''}${change.price_change.toLocaleString()} ₽
+                                </div>
+                                <small class="text-muted">
+                                    ${change.change_percent > 0 ? '+' : ''}${change.change_percent.toFixed(1)}%
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        } else {
+            container.innerHTML = '<div class="text-muted">Нет изменений цен</div>';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки изменений цен:', error);
+        document.getElementById('recent-changes-list').innerHTML = '<div class="text-danger">Ошибка загрузки</div>';
+    }
+}
+
+// Загрузка статистики цен
+async function loadPriceStatistics() {
+    try {
+        const response = await fetch('/api/price-statistics');
+        const data = await response.json();
+        
+        const container = document.getElementById('price-statistics');
+        if (data.statistics) {
+            const stats = data.statistics;
+            container.innerHTML = `
+                <div class="row">
+                    <div class="col-6">
+                        <div class="text-center">
+                            <h6>Средняя цена</h6>
+                            <h4 class="text-primary">${stats.average_price ? stats.average_price.toLocaleString() : 0} ₽</h4>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="text-center">
+                            <h6>Медианная цена</h6>
+                            <h4 class="text-success">${stats.median_price ? stats.median_price.toLocaleString() : 0} ₽</h4>
+                        </div>
+                    </div>
+                </div>
+                <hr>
+                <div class="row">
+                    <div class="col-6">
+                        <div class="text-center">
+                            <h6>Минимальная цена</h6>
+                            <h5 class="text-info">${stats.min_price ? stats.min_price.toLocaleString() : 0} ₽</h5>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="text-center">
+                            <h6>Максимальная цена</h6>
+                            <h5 class="text-warning">${stats.max_price ? stats.max_price.toLocaleString() : 0} ₽</h5>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+            container.innerHTML = '<div class="text-muted">Нет данных о ценах</div>';
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки статистики цен:', error);
+        document.getElementById('price-statistics').innerHTML = '<div class="text-danger">Ошибка загрузки</div>';
+    }
+}
+
+// Создание графиков (заглушки)
+function createCharts() {
+    // График районов
+    const districtsCtx = document.getElementById('districtsChart').getContext('2d');
+    new Chart(districtsCtx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Краснодар', 'Другие районы'],
+            datasets: [{
+                data: [70, 30],
+                backgroundColor: ['#007bff', '#6c757d']
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+
+    // График цен
+    const priceCtx = document.getElementById('priceChart').getContext('2d');
+    new Chart(priceCtx, {
+        type: 'bar',
+        data: {
+            labels: ['< 1M', '1-2M', '2-3M', '3-5M', '> 5M'],
+            datasets: [{
+                label: 'Количество объектов',
+                data: [20, 35, 25, 15, 5],
+                backgroundColor: '#28a745'
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+}
+
+// Показ уведомлений
+function showToast(message, type = 'info') {
+    const toastContainer = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `alert alert-${type} alert-dismissible fade show toast`;
+    toast.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    toastContainer.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.remove();
+    }, 5000);
+}
+
+// Загружаем данные при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    loadStats();
+    loadRecentChanges();
+    loadPriceStatistics();
+    createCharts();
+});
+</script>
+{% endblock %} 

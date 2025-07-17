@@ -1,8 +1,9 @@
 @echo off
-echo Запуск админки недвижимости...
+echo Запуск Backend (Flask API)...
 echo Приложение будет доступно по адресу: http://localhost:5000
 echo Для остановки нажмите Ctrl+C
 echo.
 cd backend
-py app.py
+call ..\\.venv\\Scripts\\activate.bat
+call ..\\.venv\\Scripts\\python.exe app.py
 pause 

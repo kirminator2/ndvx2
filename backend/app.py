@@ -1752,14 +1752,40 @@ def reset_stop_flag():
 @app.route('/api/link-properties-yandex')
 def link_properties_yandex():
     try:
-        # Получаем все адреса, которые имеют связанные объекты и Яндекс-ЖК
-        addresses_with_both = db.session.query(Address).join(Property).join(YandexNewBuilding).distinct().all()
+        # Получаем ID объектов "В продаже" из таблицы SellerContact
+        utm_terms = db.session.query(SellerContact.utm_term)\
+            .filter(SellerContact.utm_term.isnot(None))\
+            .filter(SellerContact.utm_term != '')\
+            .all()
+        
+        property_ids_in_sale = []
+        for (utm_term,) in utm_terms:
+            try:
+                property_ids_in_sale.append(int(utm_term))
+            except (ValueError, TypeError):
+                continue
+        
+        # Получаем все адреса, которые имеют связанные объекты "В продаже" и Яндекс-ЖК
+        if property_ids_in_sale:
+            addresses_with_both = db.session.query(Address)\
+                .join(Property)\
+                .join(YandexNewBuilding)\
+                .filter(Property.id.in_(property_ids_in_sale))\
+                .distinct().all()
+        else:
+            addresses_with_both = []
+        
         linked_data = []
         for address in addresses_with_both:
-            # Получаем все объекты с этим адресом
-            properties = Property.query.filter_by(address_id=address.id).all()
+            # Получаем только объекты "В продаже" с этим адресом
+            properties = Property.query.filter(
+                Property.address_id == address.id,
+                Property.id.in_(property_ids_in_sale)
+            ).all()
+            
             # Получаем все Яндекс-ЖК с этим адресом
             yandex_newbuildings = YandexNewBuilding.query.filter_by(address_id=address.id).all()
+            
             if properties and yandex_newbuildings:
                 linked_data.append({
                     'address': {
@@ -1802,6 +1828,7 @@ def link_properties_yandex():
                         'latitude': yb.dadata_address.latitude if yb.dadata_address else None
                     } for yb in yandex_newbuildings]
                 })
+        
         return jsonify({
             'success': True,
             'linked_data': linked_data,

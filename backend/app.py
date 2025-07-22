@@ -4,6 +4,7 @@ import threading
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_file
 from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
 import pandas as pd
 import os
 from datetime import datetime
@@ -15,13 +16,15 @@ import json as pyjson
 import csv
 from sqlalchemy.orm import aliased, joinedload
 from sqlalchemy import or_
-from g4f.client import Client
+# from g4f.client import Client
 from io import StringIO
 import traceback
 import urllib.parse
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///real_estate.db'
+CORS(app)  # Разрешаем CORS для всех маршрутов
+import os
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(os.path.dirname(__file__), "instance", "real_estate.db")}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -2055,18 +2058,19 @@ def timeout(seconds, error_message="Timeout"):
 
 @timeout(10)
 def get_response(prompt):
-    client = Client()
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        web_search=False,
-        ignore_stream=True
-    )
-    if re.search('discord.gg', response.choices[0].message.content) or re.search('я не могу помочь',
-                                                                                 response.choices[0].message.content):
-        return None
+    # client = Client()
+    # response = client.chat.completions.create(
+    #     model="gpt-4o-mini",
+    #     messages=[{"role": "user", "content": prompt}],
+    #     web_search=False,
+    #     ignore_stream=True
+    # )
+    # if re.search('discord.gg', response.choices[0].message.content) or re.search('я не могу помочь',
+    #                                                                              response.choices[0].message.content):
+    #     return None
 
-    return response
+    # return response
+    return None  # Временно отключено
 
 
 def generate_property_description(content):

@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+
+{% block title %}Документация API{% endblock %}
+
+{% block head %}
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4"><i class="fas fa-book me-2"></i>Документация API</h1>
+    <p>Здесь вы найдете описание доступных API-эндпоинтов для работы с данными недвижимости.</p>
+    <hr>
+    <h3>Основные эндпоинты</h3>
+    <ul>
+        <li><b>GET</b> <code>/api/properties</code> — Получить список объектов недвижимости</li>
+        <li><b>GET</b> <code>/api/complexes</code> — Получить список жилых комплексов</li>
+        <li><b>GET</b> <code>/api/seller-contacts</code> — Получить контакты продавцов</li>
+        <li><b>GET</b> <code>/api/stats</code> — Получить статистику</li>
+        <li><b>POST</b> <code>/api/import-complexes</code> — Импортировать ЖК</li>
+        <li><b>POST</b> <code>/api/import-seller-contacts</code> — Импортировать контакты продавцов</li>
+        <li><b>POST</b> <code>/api/update-ratings</code> — Обновить рейтинги</li>
+        <li><b>POST</b> <code>/api/geocode-all</code> — Геокодировать все объекты</li>
+        <li><b>POST</b> <code>/api/geocode-all-complexes</code> — Геокодировать все ЖК</li>
+    </ul>
+    <hr>
+    <h3>Яндекс-ЖК (новостройки)</h3>
+    <ul>
+        <li><b>GET</b> <code>/api/yandex-newbuildings</code> — Получить список Яндекс-ЖК</li>
+        <li><b>GET</b> <code>/api/yandex-newbuildings/regions</code> — Получить список регионов Яндекс-ЖК</li>
+        <li><b>GET</b> <code>/api/yandex-linked-complexes</code> — Получить связанные Яндекс-ЖК</li>
+        <li><b>POST</b> <code>/api/import-yandex-newbuildings</code> — Импортировать Яндекс-ЖК</li>
+        <li><b>POST</b> <code>/api/update-yandex-links</code> — Обновить связи Яндекс-ЖК</li>
+        <li><b>POST</b> <code>/api/update-yandex-ratings</code> — Обновить рейтинги Яндекс-ЖК</li>
+        <li><b>POST</b> <code>/api/yandex-geocode-region</code> — Геокодировать адреса для региона</li>
+        <li><b>POST</b> <code>/api/yandex-geocode-one/{building_id}</code> — Геокодировать один адрес</li>
+        <li><b>GET</b> <code>/api/link-properties-yandex</code> — Получить связанные объекты и Яндекс-ЖК</li>
+    </ul>
+    <hr>
+    <h3>Полезные ссылки</h3>
+    <ul>
+        <li><a href="/api/properties" target="_blank">/api/properties</a></li>
+        <li><a href="/api/complexes" target="_blank">/api/complexes</a></li>
+        <li><a href="/api/seller-contacts" target="_blank">/api/seller-contacts</a></li>
+        <li><a href="/api/stats" target="_blank">/api/stats</a></li>
+    </ul>
+    <hr>
+    <h3>Ссылки Яндекс-ЖК</h3>
+    <ul>
+        <li><a href="/api/yandex-newbuildings" target="_blank">/api/yandex-newbuildings</a></li>
+        <li><a href="/api/yandex-newbuildings/regions" target="_blank">/api/yandex-newbuildings/regions</a></li>
+        <li><a href="/api/yandex-linked-complexes" target="_blank">/api/yandex-linked-complexes</a></li>
+        <li><a href="/api/link-properties-yandex" target="_blank">/api/link-properties-yandex</a></li>
+    </ul>
+    <hr>
+    <h3>Пример запроса</h3>
+    <pre><code>curl https://ваш_домен/api/properties</code></pre>
+    <hr>
+    <p>Для получения подробной информации по каждому эндпоинту обратитесь к разработчику или ознакомьтесь с исходным кодом backend/app.py.</p>
+</div>
+{% endblock %} 

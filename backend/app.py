@@ -3662,6 +3662,11 @@ def get_complexes_with_properties():
     })
 
 
+@app.route('/api-docs')
+def api_docs():
+    return render_template('api-docs.html')
+
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()

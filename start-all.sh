@@ -3,22 +3,7 @@
 echo "Запуск полного стека приложения..."
 echo "Backend будет доступен по адресу: http://localhost:5000"
 echo "Frontend будет доступен по адресу: http://localhost:8081"
-
-# Проверяем наличие npm
-if ! command -v npm &> /dev/null; then
-    echo "ОШИБКА: npm не найден!"
-    echo "Установите Node.js и npm:"
-    echo "curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -"
-    echo "sudo apt-get install -y nodejs"
-    exit 1
-fi
-
-# Проверяем, занят ли порт 5000
-if lsof -Pi :5000 -sTCP:LISTEN -t >/dev/null ; then
-    echo "ПРЕДУПРЕЖДЕНИЕ: Порт 5000 уже занят!"
-    echo "Останавливаем процесс на порту 5000..."
-    sudo lsof -ti:5000 | xargs kill -9
-fi
+echo ""
 
 # Проверяем, существует ли виртуальное окружение
 if [ ! -d ".venv" ]; then

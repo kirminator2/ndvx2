@@ -211,6 +211,143 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Новые операции для создания slug'ов -->
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fas fa-link"></i>
+                            </div>
+                            <div class="operation-title">Создать slug'и для адресов</div>
+                            <div class="operation-description">
+                                Создает уникальные slug'и для всех адресов, у которых их нет
+                            </div>
+                            <button type="button" class="btn btn-info" onclick="createAddressSlugs(event)">
+                                <i class="fas fa-link me-1"></i>Создать slug'и адресов
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fas fa-building"></i>
+                            </div>
+                            <div class="operation-title">Создать slug'и для ЖК</div>
+                            <div class="operation-description">
+                                Создает уникальные slug'и для всех жилых комплексов
+                            </div>
+                            <button type="button" class="btn btn-primary" onclick="createComplexSlugs(event)">
+                                <i class="fas fa-building me-1"></i>Создать slug'и ЖК
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fab fa-yandex"></i>
+                            </div>
+                            <div class="operation-title">Создать slug'и для связей Яндекс-ЖК</div>
+                            <div class="operation-description">
+                                Создает уникальные slug'и для всех связей с Яндекс-ЖК
+                            </div>
+                            <button type="button" class="btn btn-success" onclick="createYandexLinkSlugs(event)">
+                                <i class="fab fa-yandex me-1"></i>Создать slug'и связей
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fas fa-star"></i>
+                            </div>
+                            <div class="operation-title">Обновить рейтинги Яндекс-ЖК</div>
+                            <div class="operation-description">
+                                Обновляет рейтинги объектов недвижимости для Яндекс-ЖК
+                            </div>
+                            <button type="button" class="btn btn-warning" onclick="updateYandexRatings(event)">
+                                <i class="fas fa-star me-1"></i>Обновить рейтинги Яндекс
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fas fa-map-marker-alt"></i>
+                            </div>
+                            <div class="operation-title">Геокодировать ЖК</div>
+                            <div class="operation-description">
+                                Геокодирует все жилые комплексы, у которых есть координаты, но нет адреса
+                            </div>
+                            <button type="button" class="btn btn-info" onclick="geocodeAllComplexes(event)">
+                                <i class="fas fa-map-marker-alt me-1"></i>Геокодировать ЖК
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fas fa-map-marker-alt"></i>
+                            </div>
+                            <div class="operation-title">Геокодировать Яндекс-ЖК</div>
+                            <div class="operation-description">
+                                Геокодирует адреса для Яндекс-ЖК по регионам
+                            </div>
+                            <button type="button" class="btn btn-secondary" onclick="showGeocodeRegionModal()">
+                                <i class="fas fa-map-marker-alt me-1"></i>Геокодировать Яндекс-ЖК
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fas fa-database"></i>
+                            </div>
+                            <div class="operation-title">Импорт TrendAgent</div>
+                            <div class="operation-description">
+                                Импортирует данные из TrendAgent (новостройки)
+                            </div>
+                            <button type="button" class="btn btn-dark" onclick="importTrendAgent(event)">
+                                <i class="fas fa-database me-1"></i>Импорт TrendAgent
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="operation-card">
+                        <div class="text-center">
+                            <div class="operation-icon">
+                                <i class="fas fa-map-marker-alt"></i>
+                            </div>
+                            <div class="operation-title">Геокодировать TrendAgent</div>
+                            <div class="operation-description">
+                                Геокодирует все здания TrendAgent
+                            </div>
+                            <button type="button" class="btn btn-info" onclick="geocodeAllTrendBuildings(event)">
+                                <i class="fas fa-map-marker-alt me-1"></i>Геокодировать TrendAgent
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -218,6 +355,30 @@
 
 <!-- Toast уведомления -->
 <div id="toast-container"></div>
+
+<!-- Модальное окно для выбора региона -->
+<div class="modal fade" id="geocodeRegionModal" tabindex="-1" aria-labelledby="geocodeRegionModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="geocodeRegionModalLabel">Выберите регион для геокодирования</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="regionSelect" class="form-label">Регион:</label>
+                    <select class="form-select" id="regionSelect">
+                        <option value="">Загрузка регионов...</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" onclick="geocodeRegion()">Геокодировать</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <script>
 // Загрузка статистики
@@ -387,13 +548,226 @@ async function importYandexNewbuildings() {
         const response = await fetch('/api/import-yandex-newbuildings');
         const result = await response.json();
         if (result.success) {
-            showToast('Данные Яндекс.Недвижимость успешно импортированы!', 'success');
+            showToast(`Данные Яндекс.Недвижимость успешно импортированы! Добавлено: ${result.added_count}, Обновлено: ${result.updated_count}`, 'success');
             loadStats(); // Обновляем статистику
         } else {
             showToast('Ошибка импорта данных Яндекс.Недвижимость', 'danger');
         }
     } catch (error) {
         showToast('Ошибка импорта данных Яндекс.Недвижимость', 'danger');
+    }
+}
+
+// Новые функции для массовых операций
+async function createAddressSlugs(event) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Создание slug\'ов...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/create-address-slugs', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showToast(`Создано ${result.created_count} slug'ов для адресов!`, 'success');
+        } else {
+            showToast('Ошибка создания slug\'ов для адресов', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка создания slug\'ов для адресов', 'danger');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+async function createComplexSlugs(event) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Создание slug\'ов...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/generate-slugs', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showToast(`Создано ${result.created_count} slug'ов для ЖК!`, 'success');
+        } else {
+            showToast('Ошибка создания slug\'ов для ЖК', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка создания slug\'ов для ЖК', 'danger');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+async function createYandexLinkSlugs(event) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Создание slug\'ов...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/create-yandex-link-slugs', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showToast(`Создано ${result.created_count} slug'ов для связей Яндекс-ЖК!`, 'success');
+        } else {
+            showToast('Ошибка создания slug\'ов для связей', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка создания slug\'ов для связей', 'danger');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+async function updateYandexRatings(event) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Обновление рейтингов...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/update-yandex-ratings', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showToast('Рейтинги Яндекс-ЖК успешно обновлены!', 'success');
+        } else {
+            showToast('Ошибка обновления рейтингов Яндекс-ЖК', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка обновления рейтингов Яндекс-ЖК', 'danger');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+async function geocodeAllComplexes(event) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Геокодирование ЖК...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/geocode-all-complexes', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showToast(`Геокодирование ЖК завершено! Обработано ${result.processed} комплексов.`, 'success');
+            loadStats(); // Обновляем статистику
+        } else {
+            showToast('Ошибка геокодирования ЖК', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка геокодирования ЖК', 'danger');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+async function showGeocodeRegionModal() {
+    try {
+        // Загружаем список регионов
+        const response = await fetch('/api/yandex-newbuildings/regions');
+        const regions = await response.json();
+        
+        const select = document.getElementById('regionSelect');
+        select.innerHTML = '<option value="">Выберите регион</option>' + 
+            regions.map(region => `<option value="${region}">${region}</option>`).join('');
+        
+        // Показываем модальное окно
+        const modal = new bootstrap.Modal(document.getElementById('geocodeRegionModal'));
+        modal.show();
+    } catch (error) {
+        showToast('Ошибка загрузки списка регионов', 'danger');
+    }
+}
+
+async function geocodeRegion() {
+    const region = document.getElementById('regionSelect').value;
+    if (!region) {
+        showToast('Пожалуйста, выберите регион', 'warning');
+        return;
+    }
+    
+    const button = document.querySelector('#geocodeRegionModal .btn-primary');
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Геокодирование...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/yandex-geocode-region', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ region: region })
+        });
+        const result = await response.json();
+        if (result.success) {
+            showToast(`Геокодирование региона "${region}" завершено! Обработано ${result.processed} адресов.`, 'success');
+            // Закрываем модальное окно
+            const modal = bootstrap.Modal.getInstance(document.getElementById('geocodeRegionModal'));
+            modal.hide();
+        } else {
+            showToast('Ошибка геокодирования региона', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка геокодирования региона', 'danger');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+async function importTrendAgent(event) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Импорт...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/import-trendagent', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showToast('Данные TrendAgent успешно импортированы!', 'success');
+            loadStats(); // Обновляем статистику
+        } else {
+            showToast('Ошибка импорта данных TrendAgent', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка импорта данных TrendAgent', 'danger');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
+    }
+}
+
+async function geocodeAllTrendBuildings(event) {
+    const button = event.target;
+    const originalText = button.innerHTML;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Геокодирование...';
+    button.disabled = true;
+    
+    try {
+        const response = await fetch('/api/geocode-all-trend-buildings', { method: 'POST' });
+        const result = await response.json();
+        if (result.success) {
+            showToast(`Геокодирование TrendAgent завершено! Обработано ${result.processed} зданий.`, 'success');
+            loadStats(); // Обновляем статистику
+        } else {
+            showToast('Ошибка геокодирования TrendAgent', 'danger');
+        }
+    } catch (error) {
+        showToast('Ошибка геокодирования TrendAgent', 'danger');
+    } finally {
+        button.innerHTML = originalText;
+        button.disabled = false;
     }
 }
 

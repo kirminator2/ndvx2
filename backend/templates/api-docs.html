@@ -11,31 +11,113 @@
     <h1 class="mb-4"><i class="fas fa-book me-2"></i>Документация API</h1>
     <p>Здесь вы найдете описание доступных API-эндпоинтов для работы с данными недвижимости.</p>
     <hr>
-    <h3>Основные эндпоинты</h3>
+    
+    <h3>Основные эндпоинты объектов недвижимости</h3>
     <ul>
         <li><b>GET</b> <code>/api/properties</code> — Получить список объектов недвижимости</li>
+        <li><b>GET</b> <code>/api/properties-fast</code> — Быстрое получение объектов недвижимости</li>
+        <li><b>GET</b> <code>/api/properties-light</code> — Облегченный список объектов</li>
+        <li><b>GET</b> <code>/api/property/&lt;property_id&gt;</code> — Получить детальную информацию об объекте</li>
+        <li><b>GET</b> <code>/api/price-history/&lt;property_id&gt;</code> — История изменения цен объекта</li>
+        <li><b>GET</b> <code>/api/property/&lt;property_id&gt;/last-price-change</code> — Последнее изменение цены</li>
+        <li><b>GET</b> <code>/api/recent-price-changes</code> — Недавние изменения цен</li>
+        <li><b>GET</b> <code>/api/price-statistics</code> — Статистика цен</li>
+        <li><b>POST</b> <code>/api/generate-description/&lt;property_id&gt;</code> — Сгенерировать описание объекта</li>
+        <li><b>POST</b> <code>/api/antiznak/&lt;property_id&gt;</code> — Обработка через Антизнак</li>
+    </ul>
+    
+    <h3>Жилые комплексы</h3>
+    <ul>
         <li><b>GET</b> <code>/api/complexes</code> — Получить список жилых комплексов</li>
-        <li><b>GET</b> <code>/api/seller-contacts</code> — Получить контакты продавцов</li>
-        <li><b>GET</b> <code>/api/stats</code> — Получить статистику</li>
+        <li><b>GET</b> <code>/api/complexes-light</code> — Облегченный список ЖК</li>
+        <li><b>GET</b> <code>/api/complexes-with-properties</code> — ЖК с объектами недвижимости</li>
+        <li><b>GET</b> <code>/api/complexes-with-slugs</code> — ЖК со slug</li>
+        <li><b>GET</b> <code>/api/complex-slug/&lt;complex_name&gt;</code> — Получить slug ЖК</li>
+        <li><b>GET</b> <code>/api/complex-properties/&lt;complex_name&gt;</code> — Объекты в ЖК</li>
+        <li><b>GET</b> <code>/api/complex-properties-slug/&lt;slug&gt;</code> — Объекты в ЖК по slug</li>
+        <li><b>GET</b> <code>/api/complex-info/&lt;complex_name&gt;</code> — Информация о ЖК</li>
+        <li><b>GET</b> <code>/api/property/&lt;property_id&gt;/complex</code> — ЖК для объекта</li>
         <li><b>POST</b> <code>/api/import-complexes</code> — Импортировать ЖК</li>
-        <li><b>POST</b> <code>/api/import-seller-contacts</code> — Импортировать контакты продавцов</li>
-        <li><b>POST</b> <code>/api/update-ratings</code> — Обновить рейтинги</li>
+        <li><b>POST</b> <code>/api/generate-slugs</code> — Сгенерировать slug для ЖК</li>
+        <li><b>POST</b> <code>/api/link-properties-complexes</code> — Связать объекты с ЖК</li>
+    </ul>
+    
+    <h3>Адреса и геокодирование</h3>
+    <ul>
+        <li><b>GET</b> <code>/api/address-properties/&lt;address_id&gt;</code> — Объекты по адресу</li>
+        <li><b>GET</b> <code>/api/address-properties-slug/&lt;slug&gt;</code> — Объекты по slug адреса</li>
+        <li><b>GET</b> <code>/api/addresses-with-slugs</code> — Адреса со slug</li>
+        <li><b>GET</b> <code>/api/address-slug/&lt;address_id&gt;</code> — Получить slug адреса</li>
+        <li><b>POST</b> <code>/api/generate-address-slugs</code> — Сгенерировать slug для адресов</li>
+        <li><b>POST</b> <code>/api/geocode-property/&lt;property_id&gt;</code> — Геокодировать объект</li>
         <li><b>POST</b> <code>/api/geocode-all</code> — Геокодировать все объекты</li>
+        <li><b>POST</b> <code>/api/geocode-complex/&lt;complex_id&gt;</code> — Геокодировать ЖК</li>
         <li><b>POST</b> <code>/api/geocode-all-complexes</code> — Геокодировать все ЖК</li>
     </ul>
-    <hr>
+    
     <h3>Яндекс-ЖК (новостройки)</h3>
     <ul>
         <li><b>GET</b> <code>/api/yandex-newbuildings</code> — Получить список Яндекс-ЖК</li>
         <li><b>GET</b> <code>/api/yandex-newbuildings/regions</code> — Получить список регионов Яндекс-ЖК</li>
         <li><b>GET</b> <code>/api/yandex-linked-complexes</code> — Получить связанные Яндекс-ЖК</li>
+        <li><b>GET</b> <code>/api/link-properties-yandex</code> — Получить связанные объекты и Яндекс-ЖК</li>
         <li><b>POST</b> <code>/api/import-yandex-newbuildings</code> — Импортировать Яндекс-ЖК</li>
         <li><b>POST</b> <code>/api/update-yandex-links</code> — Обновить связи Яндекс-ЖК</li>
+        <li><b>POST</b> <code>/api/create-yandex-link-slugs</code> — Создать slug'и для связей Яндекс-ЖК</li>
+        <li><b>POST</b> <code>/api/create-address-slugs</code> — Создать slug'и для адресов</li>
         <li><b>POST</b> <code>/api/update-yandex-ratings</code> — Обновить рейтинги Яндекс-ЖК</li>
         <li><b>POST</b> <code>/api/yandex-geocode-region</code> — Геокодировать адреса для региона</li>
-        <li><b>POST</b> <code>/api/yandex-geocode-one/{building_id}</code> — Геокодировать один адрес</li>
-        <li><b>GET</b> <code>/api/link-properties-yandex</code> — Получить связанные объекты и Яндекс-ЖК</li>
+        <li><b>POST</b> <code>/api/yandex-geocode-one/&lt;building_id&gt;</code> — Геокодировать один адрес</li>
     </ul>
+    
+    <h3>TrendAgent (новостройки)</h3>
+    <ul>
+        <li><b>GET</b> <code>/api/trend-buildings</code> — Получить список зданий TrendAgent</li>
+        <li><b>POST</b> <code>/api/import-trendagent</code> — Импортировать данные TrendAgent</li>
+        <li><b>POST</b> <code>/api/geocode-trend-building/&lt;building_id&gt;</code> — Геокодировать здание TrendAgent</li>
+        <li><b>POST</b> <code>/api/geocode-all-trend-buildings</code> — Геокодировать все здания TrendAgent</li>
+    </ul>
+    
+    <h3>Фотографии и медиа</h3>
+    <ul>
+        <li><b>GET</b> <code>/api/complex-photos/&lt;address_id&gt;</code> — Фотографии ЖК</li>
+        <li><b>POST</b> <code>/api/add-complex-photo</code> — Добавить фото ЖК</li>
+        <li><b>POST</b> <code>/api/add-complex-photos-from-folder</code> — Добавить фото из папки</li>
+    </ul>
+    
+    <h3>Продавцы и контакты</h3>
+    <ul>
+        <li><b>GET</b> <code>/api/seller-contacts</code> — Получить контакты продавцов</li>
+        <li><b>POST</b> <code>/api/import-seller-contacts</code> — Импортировать контакты продавцов</li>
+        <li><b>POST</b> <code>/api/migrate-property-contacts</code> — Мигрировать контакты объектов</li>
+        <li><b>POST</b> <code>/api/send-phone</code> — Отправить номер телефона</li>
+    </ul>
+    
+    <h3>Статистика и аналитика</h3>
+    <ul>
+        <li><b>GET</b> <code>/api/stats</code> — Получить статистику</li>
+        <li><b>GET</b> <code>/api/stats-light</code> — Облегченная статистика</li>
+        <li><b>POST</b> <code>/api/update-ratings</code> — Обновить рейтинги</li>
+    </ul>
+    
+    <h3>Автодополнение и поиск</h3>
+    <ul>
+        <li><b>GET</b> <code>/api/objects-autocomplete</code> — Автодополнение объектов</li>
+    </ul>
+    
+    <h3>Управление задачами</h3>
+    <ul>
+        <li><b>POST</b> <code>/api/stop-all-tasks</code> — Остановить все задачи</li>
+        <li><b>POST</b> <code>/api/reset-stop-flag</code> — Сбросить флаг остановки</li>
+    </ul>
+    
+    <h3>Импорт и экспорт данных</h3>
+    <ul>
+        <li><b>GET</b> <code>/api/load-data</code> — Загрузить данные</li>
+        <li><b>GET</b> <code>/api/download-and-update</code> — Скачать и обновить данные</li>
+        <li><b>GET</b> <code>/export-properties-csv</code> — Экспорт объектов в CSV</li>
+    </ul>
+    
     <hr>
     <h3>Полезные ссылки</h3>
     <ul>
@@ -43,19 +125,29 @@
         <li><a href="/api/complexes" target="_blank">/api/complexes</a></li>
         <li><a href="/api/seller-contacts" target="_blank">/api/seller-contacts</a></li>
         <li><a href="/api/stats" target="_blank">/api/stats</a></li>
-    </ul>
-    <hr>
-    <h3>Ссылки Яндекс-ЖК</h3>
-    <ul>
         <li><a href="/api/yandex-newbuildings" target="_blank">/api/yandex-newbuildings</a></li>
-        <li><a href="/api/yandex-newbuildings/regions" target="_blank">/api/yandex-newbuildings/regions</a></li>
-        <li><a href="/api/yandex-linked-complexes" target="_blank">/api/yandex-linked-complexes</a></li>
-        <li><a href="/api/link-properties-yandex" target="_blank">/api/link-properties-yandex</a></li>
+        <li><a href="/api/trend-buildings" target="_blank">/api/trend-buildings</a></li>
     </ul>
+    
     <hr>
-    <h3>Пример запроса</h3>
-    <pre><code>curl https://ваш_домен/api/properties</code></pre>
+    <h3>Примеры запросов</h3>
+    <pre><code># Получить список объектов
+curl http://127.0.0.1:5000/api/properties
+
+# Получить объект по ID
+curl http://127.0.0.1:5000/api/property/123
+
+# Получить объекты по slug адреса
+curl http://127.0.0.1:5000/api/address-properties-slug/g-krasnodar-ul-skandinavskaya-d-1-k-4
+
+# Получить ЖК по slug
+curl http://127.0.0.1:5000/api/complex-properties-slug/zhk-skandinaviya
+
+# История цен объекта
+curl http://127.0.0.1:5000/api/price-history/123</code></pre>
+    
     <hr>
-    <p>Для получения подробной информации по каждому эндпоинту обратитесь к разработчику или ознакомьтесь с исходным кодом backend/app.py.</p>
+    <p><strong>Всего эндпоинтов:</strong> 50+ API эндпоинтов</p>
+    <p>Для получения подробной информации по каждому эндпоинту обратитесь к разработчику или ознакомьтесь с исходным кодом <code>backend/app.py</code>.</p>
 </div>
 {% endblock %} 

@@ -50,6 +50,7 @@ class Address(db.Model):
     city = db.Column(db.String(100))
     street = db.Column(db.String(200))
     house = db.Column(db.String(50))
+    slug = db.Column(db.String(255), unique=True)  # Красивый URL для адреса
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -147,6 +148,10 @@ class Property(db.Model):
     # Связь с таблицей адресов
     address_id = db.Column(db.Integer, db.ForeignKey('address.id'))
     dadata_address = db.relationship('Address', backref='properties')
+    
+    # Связь с жилым комплексом
+    residential_complex_id = db.Column(db.Integer, db.ForeignKey('residential_complex.id'))
+    residential_complex = db.relationship('ResidentialComplex', backref='properties')
 
 
 class AntiznakStatus(db.Model):
@@ -206,6 +211,7 @@ class YandexNewBuilding(db.Model):
     address = db.Column(db.String(255))
     building_id = db.Column(db.String(64))
     url = db.Column(db.String(512))
+    slug = db.Column(db.String(255), unique=True)  # Красивый URL
     address_id = db.Column(db.Integer, db.ForeignKey('address.id'))
     dadata_address = db.relationship('Address', backref='yandex_newbuildings')
 
@@ -237,6 +243,7 @@ class PropertyYandexLink(db.Model):
     property_id = db.Column(db.Integer, db.ForeignKey('property.id'), unique=True)
     yandex_building_id = db.Column(db.Integer, db.ForeignKey('yandex_newbuildings.id'))
     yandex_complex_name = db.Column(db.String(255))  # Добавляем поле для имени комплекса
+    slug = db.Column(db.String(255))  # Красивый URL для ЖК
     property = db.relationship('Property', backref=db.backref('yandex_link', uselist=False))
     yandex_building = db.relationship('YandexNewBuilding', backref=db.backref('property_links'))
 
@@ -441,6 +448,13 @@ def get_or_create_address(lat, lon):
     )
     db.session.add(new_address)
     db.session.commit()
+    
+    # Создаем slug для нового адреса
+    slug = create_slug_for_address(new_address)
+    if slug:
+        new_address.slug = slug
+        db.session.commit()
+    
     return new_address
 
 
@@ -1490,31 +1504,64 @@ def import_yandex_newbuildings():
     response.raise_for_status()
     content = response.content.decode('utf-8')
     reader = csv.reader(content.splitlines(), delimiter='\t')
-    # Очищаем старые данные
-    YandexNewBuilding.query.delete()
+    
+    # Создаем словарь существующих записей для быстрого поиска
+    existing_buildings = {}
+    for building in YandexNewBuilding.query.all():
+        # Используем комбинацию complex_id + building_id как уникальный ключ
+        key = f"{building.complex_id}_{building.building_id}"
+        existing_buildings[key] = building
+    
+    added_count = 0
+    updated_count = 0
+    
     for row in reader:
         if len(row) < 8:
             continue
-        yb = YandexNewBuilding(
-            region=row[0],
-            complex_name=row[1],
-            complex_id=row[2],
-            queue=row[3],
-            ready_date=row[4],
-            address=row[5],
-            building_id=row[6],
-            url=row[7]
-        )
-        db.session.add(yb)
+        
+        complex_id = row[2]
+        building_id = row[6]
+        key = f"{complex_id}_{building_id}"
+        
+        if key in existing_buildings:
+            # Обновляем существующую запись
+            building = existing_buildings[key]
+            building.region = row[0]
+            building.complex_name = row[1]
+            building.queue = row[3]
+            building.ready_date = row[4]
+            building.address = row[5]
+            building.url = row[7]
+            updated_count += 1
+        else:
+            # Создаем новую запись
+            yb = YandexNewBuilding(
+                region=row[0],
+                complex_name=row[1],
+                complex_id=row[2],
+                queue=row[3],
+                ready_date=row[4],
+                address=row[5],
+                building_id=row[6],
+                url=row[7]
+            )
+            db.session.add(yb)
+            added_count += 1
+    
     db.session.commit()
-    return True
+    return True, added_count, updated_count
 
 
-@app.route('/api/import-yandex-newbuildings')
+@app.route('/api/import-yandex-newbuildings', methods=['GET', 'POST'])
 def api_import_yandex_newbuildings():
     try:
-        import_yandex_newbuildings()
-        return jsonify({'success': True, 'message': 'Импорт Яндекс-ЖК завершен'})
+        success, added_count, updated_count = import_yandex_newbuildings()
+        return jsonify({
+            'success': success,
+            'added_count': added_count,
+            'updated_count': updated_count,
+            'message': 'Импорт Яндекс-ЖК завершен'
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
@@ -1678,6 +1725,45 @@ def yandex_geocode_one(building_id):
         return jsonify({'success': False, 'error': 'Не удалось определить адрес'})
 
 
+def generate_slug(text):
+    """Генерирует slug из текста (транслитерация + очистка)"""
+    import re
+    import unicodedata
+    
+    # Транслитерация кириллицы
+    translit_map = {
+        'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'e',
+        'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+        'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+        'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch',
+        'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+        'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'E',
+        'Ж': 'Zh', 'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M',
+        'Н': 'N', 'О': 'O', 'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U',
+        'Ф': 'F', 'Х': 'H', 'Ц': 'Ts', 'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Sch',
+        'Ъ': '', 'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya'
+    }
+    
+    # Транслитерация
+    for cyr, lat in translit_map.items():
+        text = text.replace(cyr, lat)
+    
+    # Нормализация Unicode
+    text = unicodedata.normalize('NFKD', text)
+    
+    # Замена спецсимволов на дефисы
+    text = re.sub(r'[^\w\s-]', '', text)
+    text = re.sub(r'[-\s]+', '-', text)
+    
+    # Удаление начальных и конечных дефисов
+    text = text.strip('-')
+    
+    # Приведение к нижнему регистру
+    text = text.lower()
+    
+    return text
+
+
 def get_or_create_address_from_string(address_str):
     # Используем DaData API для поиска по строке адреса
     try:
@@ -1728,6 +1814,13 @@ def get_or_create_address_from_string(address_str):
             )
             db.session.add(new_address)
             db.session.commit()
+            
+            # Создаем slug для нового адреса
+            slug = create_slug_for_address(new_address)
+            if slug:
+                new_address.slug = slug
+                db.session.commit()
+            
             return new_address
         return None
     except Exception as e:
@@ -1962,28 +2055,90 @@ def update_yandex_ratings():
 
 @app.route('/api/update-yandex-links', methods=['POST'])
 def update_yandex_links():
-    # Удаляем старые связи
-    PropertyYandexLink.query.delete()
-    db.session.commit()
+    # Получаем существующие связи для проверки
+    existing_links = {}
+    for link in PropertyYandexLink.query.all():
+        existing_links[link.property_id] = link
+    
     # Явные JOIN-ы через ON с получением названия комплекса
     links = db.session.query(Property.id, YandexNewBuilding.id, YandexNewBuilding.complex_name) \
         .join(Address, Property.address_id == Address.id) \
         .join(YandexNewBuilding, YandexNewBuilding.address_id == Address.id) \
         .all()
-    seen = set()
+    
+    new_links_count = 0
+    updated_links_count = 0
+    
     for property_id, yandex_building_id, complex_name in links:
-        if property_id in seen:
-            continue
         if yandex_building_id:
-            link = PropertyYandexLink(
-                property_id=property_id, 
-                yandex_building_id=yandex_building_id,
-                yandex_complex_name=complex_name  # Автоматически заполняем название
-            )
-            db.session.add(link)
-            seen.add(property_id)
+            if property_id in existing_links:
+                # Обновляем существующую связь
+                link = existing_links[property_id]
+                link.yandex_building_id = yandex_building_id
+                link.yandex_complex_name = complex_name
+                updated_links_count += 1
+            else:
+                # Создаем новую связь
+                link = PropertyYandexLink(
+                    property_id=property_id, 
+                    yandex_building_id=yandex_building_id,
+                    yandex_complex_name=complex_name
+                )
+                db.session.add(link)
+                new_links_count += 1
+    
     db.session.commit()
-    return jsonify({'success': True, 'links_created': len(seen)})
+    
+    # Создаем slug'и для новых связей
+    if new_links_count > 0:
+        create_slugs_for_yandex_links()
+    
+    return jsonify({
+        'success': True, 
+        'new_links_created': new_links_count,
+        'existing_links_updated': updated_links_count
+    })
+
+
+def create_slugs_for_yandex_links():
+    """Создает slug'и для связей Яндекс-ЖК, у которых их нет"""
+    links_without_slugs = PropertyYandexLink.query.filter(
+        (PropertyYandexLink.slug.is_(None)) | (PropertyYandexLink.slug == '')
+    ).all()
+    
+    created_count = 0
+    for link in links_without_slugs:
+        if link.yandex_complex_name:
+            # Генерируем slug из названия комплекса
+            slug = generate_slug(link.yandex_complex_name)
+            
+            # Проверяем уникальность в таблице связей
+            counter = 1
+            original_slug = slug
+            while PropertyYandexLink.query.filter_by(slug=slug).first():
+                slug = f"{original_slug}-{counter}"
+                counter += 1
+            
+            # Обновляем slug
+            link.slug = slug
+            created_count += 1
+    
+    db.session.commit()
+    return created_count
+
+
+@app.route('/api/create-yandex-link-slugs', methods=['POST'])
+def api_create_yandex_link_slugs():
+    """API endpoint для создания slug'ов для связей Яндекс-ЖК"""
+    try:
+        created_count = create_slugs_for_yandex_links()
+        return jsonify({
+            'success': True,
+            'created_count': created_count,
+            'message': f'Создано {created_count} slug\'ов для связей Яндекс-ЖК'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 
 @app.route('/api/objects-autocomplete')
@@ -3353,48 +3508,40 @@ def get_price_statistics():
 
 @app.route('/api/complex-properties/<complex_name>')
 def get_complex_properties(complex_name):
-    """Получить все квартиры конкретного жилого комплекса"""
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 50, type=int)
+    """Получить все квартиры конкретного жилого комплекса (по названию)"""
+    import urllib.parse
     
     # Декодируем название комплекса из URL
     complex_name = urllib.parse.unquote(complex_name)
     
-    # Получаем квартиры для данного ЖК
-    query = Property.query.join(PropertyYandexLink).filter(
+    # Получаем информацию о ЖК из Яндекс-новостроек
+    yandex_complex = YandexNewBuilding.query.filter_by(complex_name=complex_name).first()
+    
+    # Получаем квартиры для данного ЖК с загрузкой связанных данных
+    query = Property.query.join(PropertyYandexLink).options(
+        db.joinedload(Property.rating_obj),
+        db.joinedload(Property.dadata_address)
+    ).filter(
         PropertyYandexLink.yandex_complex_name == complex_name
     )
     
-    # Подсчитываем общее количество
-    total = query.count()
-    pages = (total + per_page - 1) // per_page
+    properties = query.all()
     
-    # Применяем пагинацию
-    properties = query.offset((page - 1) * per_page).limit(per_page).all()
+    # Подсчитываем статистику
+    total_properties = len(properties)
+    avg_price = sum(p.price for p in properties) / total_properties if total_properties > 0 else 0
+    min_price = min(p.price for p in properties) if total_properties > 0 else 0
+    max_price = max(p.price for p in properties) if total_properties > 0 else 0
     
-    # Формируем ответ
+    # Формируем ответ с квартирами
     properties_data = []
     for prop in properties:
-        # Получаем информацию об адресе
-        address_info = None
-        if prop.dadata_address:
-            address_info = {
-                'id': prop.dadata_address.id,
-                'address': prop.dadata_address.dadata_address,
-                'full_address': prop.dadata_address.dadata_full_address,
-                'city': prop.dadata_address.city,
-                'street': prop.dadata_address.street,
-                'house': prop.dadata_address.house
-            }
-        
-        # Проверяем, был ли номер отправлен в КЦ
-        sent_to_callcenter = False
-        if prop.contacts:
-            import re
-            phone_match = re.search(r'(\+?\d{10,15})', prop.contacts)
-            if phone_match:
-                phone = phone_match.group(1)
-                sent_to_callcenter = Lead2CallLog.query.filter_by(phone=phone, status='success').first() is not None
+        # Получаем первое изображение
+        first_image = None
+        if prop.images:
+            images_list = prop.images.split(',')
+            if images_list:
+                first_image = images_list[0].strip()
         
         properties_data.append({
             'id': prop.id,
@@ -3406,30 +3553,189 @@ def get_complex_properties(complex_name):
             'floor': prop.floor,
             'total_floors': prop.total_floors,
             'construction_year': prop.construction_year,
-            'content': prop.content or '',
-            'images': prop.images or '',
-            'contacts': prop.contacts or '',
-            'price_per_sqm': prop.price_per_sqm,
+            'image': first_image,
             'longitude': prop.longitude,
             'latitude': prop.latitude,
-            'dadata_address': address_info,
-            'antiznak_photos': [p.replace('\\', '/').replace('\\', '/') for p in
-                                json.loads(prop.antiznak_status.photos)] if getattr(prop, 'antiznak_status', None) and prop.antiznak_status.photos else [],
-            'antiznak_status_status': getattr(prop.antiznak_status, 'status', None),
-            'source_url': prop.source_url,
-            'sent_to_callcenter': sent_to_callcenter,
-            'rating': prop.rating_obj.rating if getattr(prop, 'rating_obj', None) else None,
-            'yandex_rating': prop.yandex_rating_obj.yandex_rating if getattr(prop, 'yandex_rating_obj', None) else None,
-            'generated_description': prop.generated_description_obj.generated_description if getattr(prop, 'generated_description_obj', None) else None
+            'rating': prop.rating_obj.rating if getattr(prop, 'rating_obj', None) else None
         })
+    
+    # Формируем статистику
+    statistics = {
+        'total_properties': total_properties,
+        'avg_price': avg_price,
+        'min_price': min_price,
+        'max_price': max_price
+    }
     
     return jsonify({
         'complex_name': complex_name,
+        'address': yandex_complex.address if yandex_complex else None,
         'properties': properties_data,
-        'total': total,
-        'pages': pages,
-        'current_page': page,
-        'per_page': per_page
+        'statistics': statistics,
+        'avg_price': avg_price,
+        'rating': None  # Можно добавить рейтинг ЖК, если есть
+    })
+
+
+@app.route('/api/property/<int:property_id>/complex')
+def get_property_complex(property_id):
+    """Получить ЖК по ID объекта недвижимости"""
+    # Получаем объект недвижимости с его связью с ЖК
+    property_item = Property.query.options(
+        db.joinedload(Property.yandex_link)
+    ).get(property_id)
+    
+    if not property_item:
+        return jsonify({'error': 'Объект не найден'}), 404
+    
+    # Проверяем, есть ли связь с ЖК
+    if not property_item.yandex_link or not property_item.yandex_link.yandex_complex_name:
+        return jsonify({'error': 'ЖК не найден для данного объекта'}), 404
+    
+    complex_name = property_item.yandex_link.yandex_complex_name
+    slug = property_item.yandex_link.slug
+    
+    # Получаем информацию о ЖК из Яндекс-новостроек
+    yandex_complex = YandexNewBuilding.query.filter_by(complex_name=complex_name).first()
+    
+    # Получаем все квартиры для данного ЖК
+    query = Property.query.join(PropertyYandexLink).options(
+        db.joinedload(Property.rating_obj),
+        db.joinedload(Property.dadata_address)
+    ).filter(
+        PropertyYandexLink.yandex_complex_name == complex_name
+    )
+    
+    properties = query.all()
+    
+    # Подсчитываем статистику
+    total_properties = len(properties)
+    avg_price = sum(p.price for p in properties) / total_properties if total_properties > 0 else 0
+    min_price = min(p.price for p in properties) if total_properties > 0 else 0
+    max_price = max(p.price for p in properties) if total_properties > 0 else 0
+    
+    # Формируем ответ с квартирами
+    properties_data = []
+    for prop in properties:
+        # Получаем первое изображение
+        first_image = None
+        if prop.images:
+            images_list = prop.images.split(',')
+            if images_list:
+                first_image = images_list[0].strip()
+        
+        properties_data.append({
+            'id': prop.id,
+            'title': prop.title or 'Без названия',
+            'address': prop.address or 'Адрес не указан',
+            'price': prop.price,
+            'total_area': prop.total_area,
+            'rooms_count': prop.rooms_count,
+            'floor': prop.floor,
+            'total_floors': prop.total_floors,
+            'construction_year': prop.construction_year,
+            'image': first_image,
+            'longitude': prop.longitude,
+            'latitude': prop.latitude,
+            'rating': prop.rating_obj.rating if getattr(prop, 'rating_obj', None) else None
+        })
+    
+    # Формируем статистику
+    statistics = {
+        'total_properties': total_properties,
+        'avg_price': avg_price,
+        'min_price': min_price,
+        'max_price': max_price
+    }
+    
+    return jsonify({
+        'complex_name': complex_name,
+        'slug': slug,
+        'address': yandex_complex.address if yandex_complex else None,
+        'properties': properties_data,
+        'statistics': statistics,
+        'avg_price': avg_price,
+        'rating': None  # Можно добавить рейтинг ЖК, если есть
+    })
+
+
+@app.route('/api/complex-properties-slug/<slug>')
+def get_complex_properties_by_slug(slug):
+    """Получить все квартиры конкретного жилого комплекса (по slug из таблицы связей)"""
+    import urllib.parse
+    
+    # Декодируем slug из URL
+    slug = urllib.parse.unquote(slug)
+    
+    # Получаем первую связь с этим slug для получения complex_name
+    link = PropertyYandexLink.query.filter_by(slug=slug).first()
+    
+    if not link:
+        return jsonify({'error': 'ЖК не найден'}), 404
+    
+    complex_name = link.yandex_complex_name
+    
+    # Получаем все квартиры для данного ЖК
+    query = Property.query.join(PropertyYandexLink).options(
+        db.joinedload(Property.rating_obj),
+        db.joinedload(Property.dadata_address)
+    ).filter(
+        PropertyYandexLink.yandex_complex_name == complex_name
+    )
+    
+    properties = query.all()
+    
+    # Подсчитываем статистику
+    total_properties = len(properties)
+    avg_price = sum(p.price for p in properties) / total_properties if total_properties > 0 else 0
+    min_price = min(p.price for p in properties) if total_properties > 0 else 0
+    max_price = max(p.price for p in properties) if total_properties > 0 else 0
+    
+    # Формируем ответ с квартирами
+    properties_data = []
+    for prop in properties:
+        # Получаем первое изображение
+        first_image = None
+        if prop.images:
+            images_list = prop.images.split(',')
+            if images_list:
+                first_image = images_list[0].strip()
+        
+        properties_data.append({
+            'id': prop.id,
+            'title': prop.title or 'Без названия',
+            'address': prop.address or 'Адрес не указан',
+            'price': prop.price,
+            'total_area': prop.total_area,
+            'rooms_count': prop.rooms_count,
+            'floor': prop.floor,
+            'total_floors': prop.total_floors,
+            'construction_year': prop.construction_year,
+            'image': first_image,
+            'longitude': prop.longitude,
+            'latitude': prop.latitude,
+            'rating': prop.rating_obj.rating if getattr(prop, 'rating_obj', None) else None
+        })
+    
+    # Формируем статистику
+    statistics = {
+        'total_properties': total_properties,
+        'avg_price': avg_price,
+        'min_price': min_price,
+        'max_price': max_price
+    }
+    
+    # Получаем информацию о ЖК из Яндекс-новостроек
+    yandex_complex = YandexNewBuilding.query.filter_by(complex_name=complex_name).first()
+    
+    return jsonify({
+        'complex_name': complex_name,
+        'slug': slug,
+        'address': yandex_complex.address if yandex_complex else None,
+        'properties': properties_data,
+        'statistics': statistics,
+        'avg_price': avg_price,
+        'rating': None  # Можно добавить рейтинг ЖК, если есть
     })
 
 
@@ -3698,10 +4004,904 @@ def api_docs():
     return render_template('api-docs.html')
 
 
-if __name__ == '__main__':
+@app.route('/api/properties-light')
+def get_properties_light():
+    """Легковесный API для быстрой загрузки списка объектов недвижимости"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 48, type=int)  # Размер страницы по умолчанию
+    property_id = request.args.get('id', type=int)
+    
+    # Если запрошен конкретный объект по ID - используем полный API
+    if property_id:
+        return get_properties()
+    
+    # Базовый запрос с загрузкой связанных данных и фильтрацией некорректных данных
+    query = Property.query.options(
+        db.joinedload(Property.rating_obj)
+    ).filter(
+        Property.id > 0,
+        Property.title != 'nan',
+        Property.title != '',
+        Property.address != 'nan',
+        Property.address != ''
+    )
+    
+    # Фильтры
+    price_min = request.args.get('price_min', type=float)
+    price_max = request.args.get('price_max', type=float)
+    area_min = request.args.get('area_min', type=float)
+    area_max = request.args.get('area_max', type=float)
+    rooms = request.args.get('rooms', type=int)
+    address = request.args.get('address', '')
+    q = request.args.get('q', '').strip()
+    
+    # Применяем фильтры
+    if price_min is not None:
+        query = query.filter(Property.price >= price_min)
+    if price_max is not None:
+        query = query.filter(Property.price <= price_max)
+    if area_min is not None:
+        query = query.filter(Property.total_area >= area_min)
+    if area_max is not None:
+        query = query.filter(Property.total_area <= area_max)
+    if rooms is not None:
+        query = query.filter(Property.rooms_count == rooms)
+    if address:
+        query = query.filter(Property.address.contains(address))
+    
+    # Поиск
+    if q:
+        if q.isdigit():
+            query = query.filter(
+                db.or_(
+                    Property.id == int(q),
+                    Property.address.ilike(f'%{q}%')
+                )
+            )
+        else:
+            query = query.filter(Property.address.ilike(f'%{q}%'))
+    
+    # Сортировка и пагинация
+    pagination = query.order_by(Property.id.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    
+    # Формируем легковесный ответ
+    properties = []
+    for prop in pagination.items:
+        # Получаем первое изображение
+        first_image = None
+        if prop.images:
+            images_list = prop.images.split(',')
+            if images_list:
+                first_image = images_list[0].strip()
+        
+        # Получаем рейтинг из связанной таблицы
+        rating = None
+        if hasattr(prop, 'rating_obj') and prop.rating_obj:
+            rating = prop.rating_obj.rating
+        
+        # Добавляем объект в ответ (фильтрация уже выполнена на уровне SQL)
+        properties.append({
+            'id': prop.id,
+            'title': prop.title or 'Без названия',
+            'address': prop.address or 'Адрес не указан',
+            'price': prop.price,
+            'total_area': prop.total_area,
+            'rooms_count': prop.rooms_count,
+            'floor': prop.floor,
+            'total_floors': prop.total_floors,
+            'construction_year': prop.construction_year,
+            'image': first_image,
+            'longitude': prop.longitude,
+            'latitude': prop.latitude,
+            'rating': rating
+        })
+    
+    return jsonify({
+        'properties': properties,
+        'total': pagination.total,
+        'pages': pagination.pages,
+        'current_page': page,
+        'per_page': per_page,
+        'has_next': pagination.has_next,
+        'has_prev': pagination.has_prev
+    })
+
+
+@app.route('/api/complexes-light')
+def get_complexes_light():
+    """Легковесный API для быстрой загрузки списка ЖК"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int)
+    
+    # Базовый запрос только с необходимыми полями
+    query = ResidentialComplex.query.with_entities(
+        ResidentialComplex.id,
+        ResidentialComplex.name,
+        ResidentialComplex.address,
+        ResidentialComplex.developer_name,
+        ResidentialComplex.photo_url,
+        ResidentialComplex.latitude,
+        ResidentialComplex.longitude
+    )
+    
+    # Поиск
+    q = request.args.get('q', '').strip()
+    if q:
+        query = query.filter(
+            db.or_(
+                ResidentialComplex.name.ilike(f'%{q}%'),
+                ResidentialComplex.address.ilike(f'%{q}%')
+            )
+        )
+    
+    # Сортировка и пагинация
+    pagination = query.order_by(ResidentialComplex.id.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    
+    # Формируем легковесный ответ
+    complexes = []
+    for complex in pagination.items:
+        complexes.append({
+            'id': complex.id,
+            'name': complex.name or 'Без названия',
+            'address': complex.address or 'Адрес не указан',
+            'developer_name': complex.developer_name,
+            'photo_url': complex.photo_url,
+            'latitude': complex.latitude,
+            'longitude': complex.longitude
+        })
+    
+    return jsonify({
+        'complexes': complexes,
+        'total': pagination.total,
+        'pages': pagination.pages,
+        'current_page': page,
+        'per_page': per_page,
+        'has_next': pagination.has_next,
+        'has_prev': pagination.has_prev
+    })
+
+
+@app.route('/api/stats-light')
+def get_stats_light():
+    """Легковесная статистика для быстрой загрузки"""
+    try:
+        # Быстрые запросы для статистики
+        total_properties = db.session.query(db.func.count(Property.id)).scalar()
+        total_complexes = db.session.query(db.func.count(ResidentialComplex.id)).scalar()
+        
+        # Статистика по ценам
+        price_stats = db.session.query(
+            db.func.min(Property.price),
+            db.func.max(Property.price),
+            db.func.avg(Property.price)
+        ).filter(Property.price.isnot(None)).first()
+        
+        # Статистика по комнатам
+        rooms_stats = db.session.query(
+            Property.rooms_count,
+            db.func.count(Property.id)
+        ).filter(Property.rooms_count.isnot(None)).group_by(Property.rooms_count).all()
+        
+        return jsonify({
+            'total_properties': total_properties or 0,
+            'total_complexes': total_complexes or 0,
+            'price_stats': {
+                'min': float(price_stats[0]) if price_stats[0] else 0,
+                'max': float(price_stats[1]) if price_stats[1] else 0,
+                'avg': float(price_stats[2]) if price_stats[2] else 0
+            },
+            'rooms_stats': {str(room): count for room, count in rooms_stats}
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# Создание индексов для ускорения запросов
+def create_indexes():
+    """Создает индексы для ускорения запросов"""
+    try:
+        # Индексы для таблицы Property
+        db.engine.execute('CREATE INDEX IF NOT EXISTS idx_property_price ON property(price)')
+        db.engine.execute('CREATE INDEX IF NOT EXISTS idx_property_total_area ON property(total_area)')
+        db.engine.execute('CREATE INDEX IF NOT EXISTS idx_property_rooms_count ON property(rooms_count)')
+        db.engine.execute('CREATE INDEX IF NOT EXISTS idx_property_address ON property(address)')
+        db.engine.execute('CREATE INDEX IF NOT EXISTS idx_property_id_desc ON property(id DESC)')
+        
+        # Индексы для таблицы ResidentialComplex
+        db.engine.execute('CREATE INDEX IF NOT EXISTS idx_complex_name ON residential_complex(name)')
+        db.engine.execute('CREATE INDEX IF NOT EXISTS idx_complex_address ON residential_complex(address)')
+        db.engine.execute('CREATE INDEX IF NOT EXISTS idx_complex_id_desc ON residential_complex(id DESC)')
+        
+        # Индексы для связанных таблиц
+        db.engine.execute('CREATE INDEX IF NOT EXISTS idx_property_rating ON property_rating(property_id)')
+        db.engine.execute('CREATE INDEX IF NOT EXISTS idx_property_yandex_rating ON property_yandex_rating(property_id)')
+        db.engine.execute('CREATE INDEX IF NOT EXISTS idx_property_yandex_link ON property_yandex_link(property_id)')
+        
+        print("Индексы созданы успешно")
+    except Exception as e:
+        print(f"Ошибка при создании индексов: {e}")
+
+# Вызываем создание индексов при запуске
     with app.app_context():
-        db.create_all()
-        # Автоматически загружаем данные при первом запуске
-        if Property.query.count() == 0:
-            load_data_from_csv()
-    app.run(debug=True, host='0.0.0.0', port=5000)
+        create_indexes()
+
+@app.route('/api/address-properties/<address_id>')
+def get_address_properties(address_id):
+    """Получение всех объектов недвижимости по адресу"""
+    try:
+        # Пытаемся получить адрес по ID
+        address = Address.query.get(address_id)
+        if not address:
+            return jsonify({'error': 'Адрес не найден'}), 404
+        
+        # Получаем все объекты с этим адресом
+        properties = Property.query.filter(
+            Property.address_id == address_id
+        ).options(
+            db.joinedload(Property.rating_obj)
+        ).all()
+        
+        # Формируем список объектов
+        properties_list = []
+        total_price = 0
+        price_count = 0
+        
+        for prop in properties:
+            # Получаем первое изображение
+            first_image = None
+            if prop.images:
+                images_list = prop.images.split(',')
+                if images_list:
+                    first_image = images_list[0].strip()
+            
+            # Получаем рейтинг
+            rating = None
+            if hasattr(prop, 'rating_obj') and prop.rating_obj:
+                rating = prop.rating_obj.rating
+            
+            # Проверяем, что данные корректные
+            if (prop.id and prop.id > 0 and 
+                prop.title and prop.title != 'nan' and 
+                prop.address and prop.address != 'nan'):
+                
+                properties_list.append({
+                    'id': prop.id,
+                    'title': prop.title or 'Без названия',
+                    'address': prop.address or 'Адрес не указан',
+                    'price': prop.price,
+                    'total_area': prop.total_area,
+                    'rooms_count': prop.rooms_count,
+                    'floor': prop.floor,
+                    'total_floors': prop.total_floors,
+                    'construction_year': prop.construction_year,
+                    'image': first_image,
+                    'longitude': prop.longitude,
+                    'latitude': prop.latitude,
+                    'rating': rating
+                })
+                
+                if prop.price:
+                    total_price += prop.price
+                    price_count += 1
+        
+        # Вычисляем среднюю цену
+        avg_price = total_price / price_count if price_count > 0 else 0
+        
+        return jsonify({
+            'address': {
+                'id': address.id,
+                'address': address.dadata_address,
+                'full_address': address.dadata_full_address,
+                'city': address.city,
+                'street': address.street,
+                'house': address.house,
+                'latitude': address.latitude,
+                'longitude': address.longitude
+            },
+            'properties': properties_list,
+            'total_properties': len(properties_list),
+            'avg_price': avg_price,
+            'statistics': {
+                'total_properties': len(properties_list),
+                'avg_price': avg_price
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/property/<int:property_id>')
+def get_property_detail(property_id):
+    """Получение детальной информации об объекте недвижимости"""
+    try:
+        # Получаем объект с предзагрузкой связанных данных
+        property_item = Property.query.options(
+            db.joinedload(Property.dadata_address),
+            db.joinedload(Property.antiznak_status),
+            db.joinedload(Property.rating_obj),
+            db.joinedload(Property.yandex_rating_obj),
+            db.joinedload(Property.yandex_link),
+            db.joinedload(Property.generated_description_obj)
+        ).get(property_id)
+        
+        if not property_item:
+            return jsonify({'error': 'Объект не найден'}), 404
+        
+        # Получаем информацию об адресе
+        address_info = None
+        if property_item.dadata_address:
+            address_info = {
+                'id': property_item.dadata_address.id,
+                'address': property_item.dadata_address.dadata_address,
+                'full_address': property_item.dadata_address.dadata_full_address,
+                'city': property_item.dadata_address.city,
+                'street': property_item.dadata_address.street,
+                'house': property_item.dadata_address.house,
+                'latitude': property_item.dadata_address.latitude,
+                'longitude': property_item.dadata_address.longitude
+            }
+        
+        # Проверяем, был ли номер отправлен в КЦ
+        sent_to_callcenter = False
+        if property_item.contacts:
+            import re
+            phone_match = re.search(r'(\+?\d{10,15})', property_item.contacts)
+            if phone_match:
+                phone = phone_match.group(1)
+                sent_to_callcenter = Lead2CallLog.query.filter_by(phone=phone, status='success').first() is not None
+        
+        # Найти связанный Яндекс-ЖК
+        yandex_complex_name = None
+        if property_item.yandex_link:
+            yandex_complex_name = property_item.yandex_link.yandex_complex_name
+        
+        # Аналогичные квартиры (same_flats)
+        same_flats = []
+        if property_item.address_id and property_item.rooms_count:
+            flats = Property.query.filter(
+                Property.address_id == property_item.address_id,
+                Property.rooms_count == property_item.rooms_count,
+                Property.id != property_item.id
+            ).limit(5).all()  # Ограничиваем до 5 аналогичных
+            
+            for flat in flats:
+                # Получаем первое изображение
+                first_image = None
+                if flat.images:
+                    images_list = flat.images.split(',')
+                    if images_list:
+                        first_image = images_list[0].strip()
+                
+                same_flats.append({
+                    'id': flat.id,
+                    'title': flat.title or 'Без названия',
+                    'address': flat.address or 'Адрес не указан',
+                    'image': first_image,
+                    'price': flat.price,
+                    'total_area': flat.total_area,
+                    'floor': flat.floor,
+                    'total_floors': flat.total_floors,
+                    'rating': flat.rating_obj.rating if getattr(flat, 'rating_obj', None) else None
+                })
+        
+        # Формируем список изображений
+        images = []
+        if property_item.images:
+            images = [img.strip() for img in property_item.images.split(',') if img.strip()]
+        
+        # Фотографии от Antiznak
+        antiznak_photos = []
+        if getattr(property_item, 'antiznak_status', None) and property_item.antiznak_status.photos:
+            try:
+                antiznak_photos = [p.replace('\\', '/').replace('\\', '/') for p in json.loads(property_item.antiznak_status.photos)]
+            except:
+                antiznak_photos = []
+        
+        # Объединяем все изображения
+        all_images = images + antiznak_photos
+        
+        return jsonify({
+            'id': property_item.id,
+            'title': property_item.title or 'Без названия',
+            'address': property_item.address or 'Адрес не указан',
+            'price': property_item.price,
+            'total_area': property_item.total_area,
+            'living_area': property_item.living_area,
+            'kitchen_area': property_item.kitchen_area,
+            'rooms_count': property_item.rooms_count,
+            'floor': property_item.floor,
+            'total_floors': property_item.total_floors,
+            'construction_year': property_item.construction_year,
+            'content': property_item.content or '',
+            'images': all_images,
+            'contacts': property_item.contacts or '',
+            'price_per_sqm': property_item.price_per_sqm,
+            'longitude': property_item.longitude,
+            'latitude': property_item.latitude,
+            'dadata_address': address_info,
+            'antiznak_status': getattr(property_item.antiznak_status, 'status', None),
+            'source_url': property_item.source_url,
+            'sent_to_callcenter': sent_to_callcenter,
+            'rating': property_item.rating_obj.rating if getattr(property_item, 'rating_obj', None) else None,
+            'yandex_rating': property_item.yandex_rating_obj.yandex_rating if getattr(property_item, 'yandex_rating_obj', None) else None,
+            'yandex_complex_name': yandex_complex_name,
+            'same_flats': same_flats,
+            'generated_description': property_item.generated_description_obj.generated_description if getattr(property_item, 'generated_description_obj', None) else None,
+            # Дополнительные поля
+            'balcony': property_item.balcony,
+            'loggia': property_item.loggia,
+            'bathroom': property_item.bathroom,
+            'toilet': property_item.toilet,
+            'parking': property_item.parking,
+            'security': property_item.security,
+            'exclusive': property_item.exclusive,
+            'delivery_quarter': property_item.delivery_quarter,
+            'house_readiness': property_item.house_readiness
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/generate-slugs', methods=['POST'])
+def generate_slugs():
+    """Генерирует slug для всех записей в таблице связей, где slug отсутствует"""
+    try:
+        # Получаем все записи без slug
+        links_without_slug = PropertyYandexLink.query.filter(
+            (PropertyYandexLink.slug.is_(None)) | (PropertyYandexLink.slug == '')
+        ).all()
+        
+        updated_count = 0
+        for link in links_without_slug:
+            if link.yandex_complex_name:
+                # Генерируем slug из названия комплекса
+                slug = generate_slug(link.yandex_complex_name)
+                
+                # Проверяем уникальность slug
+                counter = 1
+                original_slug = slug
+                while PropertyYandexLink.query.filter_by(slug=slug).first():
+                    slug = f"{original_slug}-{counter}"
+                    counter += 1
+                
+                link.slug = slug
+                updated_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Обновлено {updated_count} записей',
+            'updated_count': updated_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/complexes-with-slugs')
+def get_complexes_with_slugs():
+    """Получить список комплексов с их slug"""
+    try:
+        # Получаем уникальные комплексы с slug
+        complexes = db.session.query(
+            PropertyYandexLink.yandex_complex_name,
+            PropertyYandexLink.slug
+        ).filter(
+            PropertyYandexLink.yandex_complex_name.isnot(None),
+            PropertyYandexLink.slug.isnot(None),
+            PropertyYandexLink.slug != ''
+        ).distinct().all()
+        
+        result = []
+        for complex_name, slug in complexes:
+            result.append({
+                'complex_name': complex_name,
+                'slug': slug
+            })
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({
+            'error': str(e)
+        }), 500
+
+@app.route('/api/complex-slug/<complex_name>')
+def get_complex_slug(complex_name):
+    """Получить slug для конкретного комплекса по его названию"""
+    import urllib.parse
+    
+    # Декодируем название комплекса из URL
+    complex_name = urllib.parse.unquote(complex_name)
+    
+    # Получаем первую запись с этим названием комплекса
+    link = PropertyYandexLink.query.filter_by(yandex_complex_name=complex_name).first()
+    
+    if not link or not link.slug:
+        return jsonify({'error': 'Slug не найден'}), 404
+    
+    return jsonify({
+        'complex_name': complex_name,
+        'slug': link.slug
+    })
+
+@app.route('/api/property/<int:property_id>/last-price-change')
+def get_last_price_change(property_id):
+    """Получить последнее изменение цены объекта недвижимости"""
+    try:
+        # Получаем последнюю запись об изменении цены
+        last_change = PriceHistory.query.filter_by(property_id=property_id)\
+            .order_by(PriceHistory.changed_at.desc()).first()
+        
+        if not last_change:
+            return jsonify({
+                'success': True,
+                'has_price_change': False,
+                'message': 'История изменений цен не найдена'
+            })
+        
+        # Определяем направление изменения
+        change_direction = 'up' if last_change.price_change > 0 else 'down' if last_change.price_change < 0 else 'none'
+        
+        # Форматируем дату
+        from datetime import datetime
+        now = datetime.utcnow()
+        time_diff = now - last_change.changed_at
+        
+        if time_diff.days > 0:
+            time_ago = f"{time_diff.days} дн. назад"
+        elif time_diff.seconds > 3600:
+            hours = time_diff.seconds // 3600
+            time_ago = f"{hours} ч. назад"
+        else:
+            minutes = time_diff.seconds // 60
+            time_ago = f"{minutes} мин. назад"
+        
+        return jsonify({
+            'success': True,
+            'has_price_change': True,
+            'old_price': last_change.old_price,
+            'new_price': last_change.new_price,
+            'price_change': last_change.price_change,
+            'change_percent': last_change.change_percent,
+            'change_direction': change_direction,
+            'changed_at': last_change.changed_at.isoformat(),
+            'time_ago': time_ago,
+            'changed_by': last_change.changed_by
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/generate-address-slugs', methods=['POST'])
+def generate_address_slugs():
+    """Генерирует slug для всех адресов, у которых его нет"""
+    try:
+        addresses = Address.query.filter(Address.slug.is_(None)).all()
+        generated_count = 0
+        
+        for address in addresses:
+            # Создаем slug из адреса
+            address_text = address.dadata_address or address.dadata_full_address or f"{address.street} {address.house}"
+            if address_text:
+                slug = generate_slug(address_text)
+                
+                # Проверяем уникальность
+                counter = 1
+                original_slug = slug
+                while Address.query.filter_by(slug=slug).first():
+                    slug = f"{original_slug}-{counter}"
+                    counter += 1
+                
+                address.slug = slug
+                generated_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Сгенерировано {generated_count} slug для адресов',
+            'generated_count': generated_count
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/addresses-with-slugs')
+def get_addresses_with_slugs():
+    """Получить список адресов с их slug"""
+    try:
+        addresses = Address.query.filter(Address.slug.isnot(None)).all()
+        
+        result = []
+        for address in addresses:
+            result.append({
+                'id': address.id,
+                'address': address.dadata_address or address.dadata_full_address or f"{address.street} {address.house}",
+                'slug': address.slug,
+                'city': address.city,
+                'street': address.street,
+                'house': address.house
+            })
+        
+        return jsonify({
+            'success': True,
+            'addresses': result,
+            'total': len(result)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/address-slug/<address_id>')
+def get_address_slug(address_id):
+    """Получить slug для адреса по его ID"""
+    try:
+        address = Address.query.get(address_id)
+        if not address:
+            return jsonify({'success': False, 'error': 'Адрес не найден'}), 404
+        
+        if not address.slug:
+            return jsonify({'success': False, 'error': 'Slug не найден'}), 404
+        
+        return jsonify({
+            'success': True,
+            'address_id': address.id,
+            'slug': address.slug,
+            'address': address.dadata_address or address.dadata_full_address or f"{address.street} {address.house}"
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/address-properties-slug/<slug>')
+def get_address_properties_by_slug(slug):
+    """Получить объекты недвижимости по slug адреса"""
+    try:
+        address = Address.query.filter_by(slug=slug).first()
+        if not address:
+            return jsonify({'success': False, 'error': 'Адрес не найден'}), 404
+        
+        properties = Property.query.filter_by(address_id=address.id).all()
+        
+        result = []
+        for prop in properties:
+            result.append({
+                'id': prop.id,
+                'title': prop.title,
+                'price': prop.price,
+                'total_area': prop.total_area,
+                'rooms_count': prop.rooms_count,
+                'floor': prop.floor,
+                'total_floors': prop.total_floors,
+                'address': prop.address,
+                'images': [img.strip() for img in prop.images.split(',')] if prop.images else [],
+                'rating': getattr(prop, 'rating', None),
+                'yandex_rating': getattr(prop, 'yandex_rating', None)
+            })
+        
+        return jsonify({
+            'success': True,
+            'address': {
+                'id': address.id,
+                'address': address.dadata_address or address.dadata_full_address or f"{address.street} {address.house}",
+                'slug': address.slug,
+                'city': address.city,
+                'street': address.street,
+                'house': address.house
+            },
+            'properties': result,
+            'total_properties': len(result)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+def generate_slug(text):
+    """Генерирует slug из текста (транслитерация + очистка)"""
+    import re
+    import unicodedata
+    
+    # Транслитерация кириллицы
+    translit_map = {
+        'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'e',
+        'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+        'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+        'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch',
+        'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+        'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'E',
+        'Ж': 'Zh', 'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M',
+        'Н': 'N', 'О': 'O', 'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U',
+        'Ф': 'F', 'Х': 'H', 'Ц': 'Ts', 'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Sch',
+        'Ъ': '', 'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya'
+    }
+    
+    # Транслитерация
+    for cyr, lat in translit_map.items():
+        text = text.replace(cyr, lat)
+    
+    # Нормализация Unicode
+    text = unicodedata.normalize('NFKD', text)
+    
+    # Замена спецсимволов на дефисы
+    text = re.sub(r'[^\w\s-]', '', text)
+    text = re.sub(r'[-\s]+', '-', text)
+    
+    # Удаление начальных и конечных дефисов
+    text = text.strip('-')
+    
+    # Приведение к нижнему регистру
+    text = text.lower()
+    
+    return text
+
+
+def create_slug_for_address(address_obj):
+    """Создает уникальный slug для адреса"""
+    if not address_obj.dadata_full_address:
+        return None
+    
+    # Генерируем slug из полного адреса
+    slug = generate_slug(address_obj.dadata_full_address)
+    
+    # Проверяем уникальность
+    counter = 1
+    original_slug = slug
+    while Address.query.filter_by(slug=slug).first():
+        slug = f"{original_slug}-{counter}"
+        counter += 1
+    
+    return slug
+
+def create_slugs_for_all_addresses():
+    """Создает slug'и для всех адресов, у которых их нет"""
+    addresses_without_slugs = Address.query.filter(
+        (Address.slug.is_(None)) | (Address.slug == '')
+    ).all()
+    
+    created_count = 0
+    for address in addresses_without_slugs:
+        slug = create_slug_for_address(address)
+        if slug:
+            address.slug = slug
+            created_count += 1
+    
+    db.session.commit()
+    return created_count
+
+
+@app.route('/api/create-address-slugs', methods=['POST'])
+def api_create_address_slugs():
+    """API endpoint для создания slug'ов для всех адресов"""
+    try:
+        created_count = create_slugs_for_all_addresses()
+        return jsonify({
+            'success': True,
+            'created_count': created_count,
+            'message': f'Создано {created_count} slug\'ов для адресов'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/complex/<int:complex_id>/properties')
+def get_complex_properties_by_id(complex_id):
+    """Получить все квартиры конкретного ЖК"""
+    complex_obj = ResidentialComplex.query.get(complex_id)
+    if not complex_obj:
+        return jsonify({'error': 'ЖК не найден'}), 404
+    
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    
+    # Получаем квартиры ЖК
+    query = Property.query.filter_by(residential_complex_id=complex_id)
+    
+    # Сортировка по цене
+    query = query.order_by(Property.price)
+    
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    
+    properties = []
+    for prop in pagination.items:
+        properties.append({
+            'id': prop.id,
+            'title': prop.title,
+            'address': prop.address,
+            'price': prop.price,
+            'price_per_sqm': prop.price_per_sqm,
+            'total_area': prop.total_area,
+            'rooms_count': prop.rooms_count,
+            'floor': prop.floor,
+            'total_floors': prop.total_floors,
+            'construction_year': prop.construction_year,
+            'contacts': prop.contacts,
+            'images': prop.images,
+            'latitude': prop.latitude,
+            'longitude': prop.longitude
+        })
+    
+    # Статистика ЖК
+    total_properties = Property.query.filter_by(residential_complex_id=complex_id).count()
+    avg_price = db.session.query(db.func.avg(Property.price)).filter_by(
+        residential_complex_id=complex_id
+    ).scalar() or 0
+    
+    return jsonify({
+        'complex': {
+            'id': complex_obj.id,
+            'name': complex_obj.name,
+            'address': complex_obj.address,
+            'developer_name': complex_obj.developer_name,
+            'ready_date': complex_obj.ready_date,
+            'latitude': complex_obj.latitude,
+            'longitude': complex_obj.longitude
+        },
+        'properties': properties,
+        'statistics': {
+            'total_properties': total_properties,
+            'avg_price': avg_price
+        },
+        'pagination': {
+            'page': pagination.page,
+            'pages': pagination.pages,
+            'per_page': pagination.per_page,
+            'total': pagination.total,
+            'has_next': pagination.has_next,
+            'has_prev': pagination.has_prev
+        }
+    })
+
+@app.route('/api/complex/<int:complex_id>')
+def get_complex_detail(complex_id):
+    """Получить детальную информацию о ЖК"""
+    complex_obj = ResidentialComplex.query.get(complex_id)
+    if not complex_obj:
+        return jsonify({'error': 'ЖК не найден'}), 404
+    
+    # Статистика ЖК
+    properties = Property.query.filter_by(residential_complex_id=complex_id).all()
+    
+    total_properties = len(properties)
+    avg_price = sum(p.price for p in properties) / total_properties if total_properties > 0 else 0
+    min_price = min(p.price for p in properties) if total_properties > 0 else 0
+    max_price = max(p.price for p in properties) if total_properties > 0 else 0
+    
+    # Распределение по комнатам
+    rooms_distribution = {}
+    for prop in properties:
+        rooms = prop.rooms_count or 0
+        rooms_distribution[rooms] = rooms_distribution.get(rooms, 0) + 1
+    
+    return jsonify({
+        'id': complex_obj.id,
+        'name': complex_obj.name,
+        'address': complex_obj.address,
+        'short_address': complex_obj.short_address,
+        'developer_name': complex_obj.developer_name,
+        'developer_full_name': complex_obj.developer_full_name,
+        'developer_inn': complex_obj.developer_inn,
+        'min_floor': complex_obj.min_floor,
+        'max_floor': complex_obj.max_floor,
+        'ready_date': complex_obj.ready_date,
+        'status': complex_obj.status,
+        'build_type': complex_obj.build_type,
+        'photo_url': complex_obj.photo_url,
+        'latitude': complex_obj.latitude,
+        'longitude': complex_obj.longitude,
+        'statistics': {
+            'total_properties': total_properties,
+            'avg_price': avg_price,
+            'min_price': min_price,
+            'max_price': max_price,
+            'rooms_distribution': rooms_distribution
+        }
+    })
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)

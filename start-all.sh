@@ -20,9 +20,22 @@ cd backend
 pip install -r requirements.txt
 cd ..
 
+# Проверяем существование frontend папки и package.json
+if [ ! -d "frontend/cozy-catalog-haven" ]; then
+    echo "ОШИБКА: Папка frontend/cozy-catalog-haven не найдена!"
+    exit 1
+fi
+
+if [ ! -f "frontend/cozy-catalog-haven/package.json" ]; then
+    echo "ОШИБКА: package.json не найден в frontend/cozy-catalog-haven!"
+    exit 1
+fi
+
 # Устанавливаем зависимости frontend
 echo "Установка зависимостей frontend..."
 cd frontend/cozy-catalog-haven
+echo "Текущая директория: $(pwd)"
+echo "Проверка package.json: $(ls -la package.json)"
 npm install
 cd ../..
 
@@ -38,6 +51,7 @@ cd ..
 echo "Запуск Frontend..."
 # Запускаем frontend в фоне
 cd frontend/cozy-catalog-haven
+echo "Запуск frontend из директории: $(pwd)"
 npm run dev &
 FRONTEND_PID=$!
 cd ../..

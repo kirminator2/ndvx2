@@ -230,6 +230,14 @@ class YandexNewBuilding(db.Model):
     slug = db.Column(db.String(255), unique=True)  # Красивый URL
     address_id = db.Column(db.Integer, db.ForeignKey('address.id'))
     dadata_address = db.relationship('Address', foreign_keys=[address_id], backref='yandex_newbuildings')
+    
+    # Связи с trend_buildings и trend_blocks
+    trend_building_id = db.Column(db.String(64))
+    trend_block_id = db.Column(db.String(64))
+    
+    # Отношения с trend_buildings и trend_blocks
+    trend_building = db.relationship('TrendBuilding', foreign_keys=[trend_building_id], primaryjoin="YandexNewBuilding.trend_building_id == TrendBuilding.id")
+    trend_block = db.relationship('TrendBlock', foreign_keys=[trend_block_id], primaryjoin="YandexNewBuilding.trend_block_id == TrendBlock.id")
 
 
 class Lead2CallLog(db.Model):
@@ -2387,7 +2395,16 @@ class TrendBlock(db.Model):
     crm_id = db.Column(db.String)
     district = db.Column(db.String)  # foreign key to region or district if needed
     description = db.Column(db.Text)
-    # ... остальные поля ...
+    # Адрес (JSON)
+    address = db.Column(db.Text)  # JSON-строка (список)
+    # Рендерер и план (JSON)
+    renderer = db.Column(db.Text)  # JSON-строка (список)
+    plan = db.Column(db.Text)  # JSON-строка (список)
+    # Метро (JSON)
+    subway = db.Column(db.Text)  # JSON-строка (список)
+    # Геометрия (JSON)
+    geometry_type = db.Column(db.String)
+    geometry_coordinates = db.Column(db.Text)  # JSON-строка
 
 # Для apartments и buildings только структура:
 class TrendApartment(db.Model):
@@ -2462,51 +2479,100 @@ class TrendBuilding(db.Model):
 
 def import_trendagent_jsons():
     import json
-    # Импорт rooms.json
+    # Импорт rooms.json (без удаления, с обновлением)
     with open('trendagent/krd/rooms.json', encoding='utf-8') as f:
-        TrendRoom.query.delete()
         for item in json.load(f):
-            db.session.add(TrendRoom(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
-    # Импорт builders.json
+            r = TrendRoom.query.get(item['_id'])
+            if r:
+                r.name = item.get('name')
+                r.crm_id = item.get('crm_id')
+            else:
+                db.session.add(TrendRoom(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
+    
+    # Импорт builders.json (без удаления, с обновлением)
     with open('trendagent/krd/builders.json', encoding='utf-8') as f:
-        TrendBuilder.query.delete()
         for item in json.load(f):
-            db.session.add(TrendBuilder(
-                id=item['_id'],
-                name=item.get('name'),
-                crm_id=str(item.get('crm_id')) if item.get('crm_id') is not None else None
-            ))
-    # Импорт buildingtypes.json
+            b = TrendBuilder.query.get(item['_id'])
+            if b:
+                b.name = item.get('name')
+                b.crm_id = str(item.get('crm_id')) if item.get('crm_id') is not None else None
+            else:
+                db.session.add(TrendBuilder(
+                    id=item['_id'],
+                    name=item.get('name'),
+                    crm_id=str(item.get('crm_id')) if item.get('crm_id') is not None else None
+                ))
+    
+    # Импорт buildingtypes.json (без удаления, с обновлением)
     with open('trendagent/krd/buildingtypes.json', encoding='utf-8') as f:
-        TrendBuildingType.query.delete()
         for item in json.load(f):
-            db.session.add(TrendBuildingType(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
-    # Импорт finishings.json
+            bt = TrendBuildingType.query.get(item['_id'])
+            if bt:
+                bt.name = item.get('name')
+                bt.crm_id = item.get('crm_id')
+            else:
+                db.session.add(TrendBuildingType(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
+    
+    # Импорт finishings.json (без удаления, с обновлением)
     with open('trendagent/krd/finishings.json', encoding='utf-8') as f:
-        TrendFinishing.query.delete()
         for item in json.load(f):
-            db.session.add(TrendFinishing(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
-    # Импорт subways.json
+            f = TrendFinishing.query.get(item['_id'])
+            if f:
+                f.name = item.get('name')
+                f.crm_id = item.get('crm_id')
+            else:
+                db.session.add(TrendFinishing(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
+    
+    # Импорт subways.json (без удаления, с обновлением)
     with open('trendagent/krd/subways.json', encoding='utf-8') as f:
-        TrendSubway.query.delete()
         for item in json.load(f):
-            db.session.add(TrendSubway(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
-    # Импорт regions.json
+            s = TrendSubway.query.get(item['_id'])
+            if s:
+                s.name = item.get('name')
+                s.crm_id = item.get('crm_id')
+            else:
+                db.session.add(TrendSubway(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
+    
+    # Импорт regions.json (без удаления, с обновлением)
     with open('trendagent/krd/regions.json', encoding='utf-8') as f:
-        TrendRegion.query.delete()
         for item in json.load(f):
-            db.session.add(TrendRegion(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
-    # Импорт blocks.json
+            r = TrendRegion.query.get(item['_id'])
+            if r:
+                r.name = item.get('name')
+                r.crm_id = item.get('crm_id')
+            else:
+                db.session.add(TrendRegion(id=item['_id'], name=item.get('name'), crm_id=item.get('crm_id')))
+    # Импорт blocks.json (без удаления, с обновлением)
     with open('trendagent/krd/blocks.json', encoding='utf-8') as f:
-        TrendBlock.query.delete()
         for item in json.load(f):
-            db.session.add(TrendBlock(
-                id=item['_id'],
-                name=item.get('name'),
-                crm_id=item.get('crm_id'),
-                district=item.get('district'),
-                description=item.get('description')
-            ))
+            b = TrendBlock.query.get(item['_id'])
+            if b:
+                # Обновляем существующую запись
+                b.name = item.get('name')
+                b.crm_id = item.get('crm_id')
+                b.district = item.get('district')
+                b.description = item.get('description')
+                b.address = json.dumps(item.get('address')) if item.get('address') is not None else None
+                b.renderer = json.dumps(item.get('renderer')) if item.get('renderer') is not None else None
+                b.plan = json.dumps(item.get('plan')) if item.get('plan') is not None else None
+                b.subway = json.dumps(item.get('subway')) if item.get('subway') is not None else None
+                b.geometry_type = item.get('geometry', {}).get('type')
+                b.geometry_coordinates = json.dumps(item.get('geometry', {}).get('coordinates')) if item.get('geometry', {}).get('coordinates') is not None else None
+            else:
+                # Создаем новую запись
+                db.session.add(TrendBlock(
+                    id=item['_id'],
+                    name=item.get('name'),
+                    crm_id=item.get('crm_id'),
+                    district=item.get('district'),
+                    description=item.get('description'),
+                    address=json.dumps(item.get('address')) if item.get('address') is not None else None,
+                    renderer=json.dumps(item.get('renderer')) if item.get('renderer') is not None else None,
+                    plan=json.dumps(item.get('plan')) if item.get('plan') is not None else None,
+                    subway=json.dumps(item.get('subway')) if item.get('subway') is not None else None,
+                    geometry_type=item.get('geometry', {}).get('type'),
+                    geometry_coordinates=json.dumps(item.get('geometry', {}).get('coordinates')) if item.get('geometry', {}).get('coordinates') is not None else None
+                ))
     # Импорт buildings.json (без удаления, с обновлением)
     with open('trendagent/krd/buildings.json', encoding='utf-8') as f:
         for item in json.load(f):
@@ -2550,11 +2616,56 @@ def import_trendagent_jsons():
                     geometry_coordinates=json.dumps(item.get('geometry', {}).get('coordinates')) if item.get('geometry', {}).get('coordinates') is not None else None
                     # address_id не задаём
                 ))
-    # Импорт apartments.json
+    # Импорт apartments.json (без удаления, с обновлением)
     with open('trendagent/krd/apartments.json', encoding='utf-8') as f:
-        TrendApartment.query.delete()
         for item in json.load(f):
-            db.session.add(TrendApartment(
+            a = TrendApartment.query.get(item['_id'])
+            if a:
+                # Обновляем существующую запись
+                a.area_balconies_total = item.get('area_balconies_total')
+                a.area_given = item.get('area_given')
+                a.area_kitchen = item.get('area_kitchen')
+                a.area_rooms = item.get('area_rooms')
+                a.area_rooms_total = item.get('area_rooms_total')
+                a.area_total = item.get('area_total')
+                a.block_address = item.get('block_address')
+                a.block_builder = item.get('block_builder')
+                a.block_builder_name = item.get('block_builder_name')
+                a.block_city = item.get('block_city')
+                a.block_crm_id = str(item.get('block_crm_id')) if item.get('block_crm_id') is not None else None
+                a.block_district = item.get('block_district')
+                a.block_district_name = item.get('block_district_name')
+                a.block_geometry_type = item.get('block_geometry', {}).get('type')
+                a.block_geometry_coordinates = json.dumps(item.get('block_geometry', {}).get('coordinates')) if item.get('block_geometry', {}).get('coordinates') is not None else None
+                a.block_id = item.get('block_id')
+                a.block_iscity = bool(item.get('block_iscity')) if item.get('block_iscity') is not None else None
+                a.block_name = item.get('block_name')
+                a.block_renderer = json.dumps(item.get('block_renderer')) if item.get('block_renderer') is not None else None
+                a.block_subway = json.dumps(item.get('block_subway')) if item.get('block_subway') is not None else None
+                a.block_subway_name = json.dumps(item.get('block_subway_name')) if item.get('block_subway_name') is not None else None
+                a.building_bank = json.dumps(item.get('building_bank')) if item.get('building_bank') is not None else None
+                a.building_contract = json.dumps(item.get('building_contract')) if item.get('building_contract') is not None else None
+                a.building_deadline = item.get('building_deadline')
+                a.building_id = item.get('building_id')
+                a.building_installment = bool(item.get('building_installment')) if item.get('building_installment') is not None else None
+                a.building_mortgage = bool(item.get('building_mortgage')) if item.get('building_mortgage') is not None else None
+                a.building_name = item.get('building_name')
+                a.building_queue = item.get('building_queue')
+                a.building_subsidy = bool(item.get('building_subsidy')) if item.get('building_subsidy') is not None else None
+                a.building_type = item.get('building_type')
+                a.building_voen_mortgage = bool(item.get('building_voen_mortgage')) if item.get('building_voen_mortgage') is not None else None
+                a.finishing = item.get('finishing')
+                a.floor = item.get('floor')
+                a.floors = item.get('floors')
+                a.height = item.get('height')
+                a.number = item.get('number')
+                a.plan = json.dumps(item.get('plan')) if item.get('plan') is not None else None
+                a.price = item.get('price')
+                a.room = item.get('room')
+                a.wc_count = item.get('wc_count')
+            else:
+                # Создаем новую запись
+                db.session.add(TrendApartment(
                 id=item['_id'],
                 area_balconies_total=item.get('area_balconies_total'),
                 area_given=item.get('area_given'),
@@ -4946,7 +5057,8 @@ def get_residential_complexes():
             YandexNewBuilding.address,
             YandexNewBuilding.ready_date,
             YandexNewBuilding.queue,
-            YandexNewBuilding.url
+            YandexNewBuilding.url,
+            YandexNewBuilding.trend_block_id
         ).filter(
             YandexNewBuilding.complex_name.isnot(None),
             YandexNewBuilding.complex_name != ''
@@ -4966,6 +5078,19 @@ def get_residential_complexes():
             s = stats_map.get(yc.id)
             if not s or s.count == 0:
                 continue  # Пропускаем комплексы без квартир
+            
+            # Получаем фотографии из trend_block
+            photos = []
+            if yc.trend_block_id:
+                trend_block = TrendBlock.query.get(yc.trend_block_id)
+                if trend_block and trend_block.renderer:
+                    try:
+                        renderer_data = json.loads(trend_block.renderer)
+                        if isinstance(renderer_data, list):
+                            photos = renderer_data
+                    except:
+                        pass
+            
             complex_data = {
                 'id': yc.id,
                 'name': yc.complex_name,
@@ -4978,7 +5103,7 @@ def get_residential_complexes():
                 'avg_price': float(s.avg_price) if s.avg_price else 0,
                 'min_price': float(s.min_price) if s.min_price else 0,
                 'max_price': float(s.max_price) if s.max_price else 0,
-                'photos': [],
+                'photos': photos,
                 'trend_building': None
             }
             complexes_data.append(complex_data)
@@ -5009,18 +5134,29 @@ def get_residential_complex_properties(complex_id):
             db.func.max(Property.price).label('max_price'),
             db.func.count(Property.id).label('total_properties')
         ).filter_by(yandex_complex_id=complex_id).first()
-        # Получаем фото из Trend Building
-        trend_photos = []
-        if yandex_complex.address_id:
-            trend_building = TrendBuilding.query.filter_by(address_id=yandex_complex.address_id).first()
-            if trend_building:
-                photos = ComplexPhoto.query.filter_by(complex_id=trend_building.id).all()
-                trend_photos = [{
-                    'id': photo.id,
-                    'photo_url': photo.photo_url,
-                    'title': photo.title,
-                    'is_main': photo.is_main
-                } for photo in photos]
+        # Получаем фото из trend_block
+        renderer_photos = []
+        plan_photos = []
+        if yandex_complex.trend_block_id:
+            trend_block = TrendBlock.query.get(yandex_complex.trend_block_id)
+            if trend_block:
+                # Получаем рендеры
+                if trend_block.renderer:
+                    try:
+                        renderer_data = json.loads(trend_block.renderer)
+                        if isinstance(renderer_data, list):
+                            renderer_photos = renderer_data
+                    except:
+                        pass
+                
+                # Получаем планы
+                if trend_block.plan:
+                    try:
+                        plan_data = json.loads(trend_block.plan)
+                        if isinstance(plan_data, list):
+                            plan_photos = plan_data
+                    except:
+                        pass
         # Формируем ответ
         complex_data = {
             'id': yandex_complex.id,
@@ -5030,7 +5166,8 @@ def get_residential_complex_properties(complex_id):
             'ready_date': yandex_complex.ready_date,
             'queue': yandex_complex.queue,
             'url': yandex_complex.url,
-            'photos': trend_photos
+            'renderer_photos': renderer_photos,
+            'plan_photos': plan_photos
         }
         statistics = {
             'avg_price': float(price_stats.avg_price) if price_stats.avg_price else 0,
@@ -5102,6 +5239,114 @@ def search_complexes():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/sale-properties')
+def get_sale_properties():
+    """Получить объекты со скидками (сниженными ценами)"""
+    try:
+        # Получаем объекты с историей изменения цен
+        # Ищем объекты, у которых есть записи в price_history с отрицательным price_change
+        properties_with_discounts = db.session.query(Property).join(
+            PriceHistory, Property.id == PriceHistory.property_id
+        ).filter(
+            PriceHistory.price_change < 0  # Только снижения цен
+        ).order_by(
+            PriceHistory.price_change.asc()  # Максимальные скидки сверху
+        ).limit(48).all()
+        
+        # Если объектов со скидками мало, добавляем объекты с самыми низкими ценами за м²
+        if len(properties_with_discounts) < 24:
+            additional_properties = db.session.query(Property).filter(
+                Property.price_per_sqm.isnot(None),
+                Property.price_per_sqm > 0
+            ).order_by(
+                Property.price_per_sqm.asc()  # Самые дешевые сверху
+            ).limit(48 - len(properties_with_discounts)).all()
+            
+            # Объединяем списки, избегая дубликатов
+            all_properties = list(properties_with_discounts)
+            existing_ids = {p.id for p in properties_with_discounts}
+            
+            for prop in additional_properties:
+                if prop.id not in existing_ids:
+                    all_properties.append(prop)
+                    existing_ids.add(prop.id)
+        else:
+            all_properties = properties_with_discounts
+        
+        # Формируем ответ
+        properties_data = []
+        for prop in all_properties:
+            # Получаем последнее изменение цены
+            last_price_change = db.session.query(PriceHistory).filter(
+                PriceHistory.property_id == prop.id
+            ).order_by(PriceHistory.changed_at.desc()).first()
+            
+            # Получаем рейтинг
+            rating = db.session.query(PropertyRating.rating).filter(
+                PropertyRating.property_id == prop.id
+            ).scalar()
+            
+            # Парсим изображения
+            images = []
+            if prop.images:
+                try:
+                    # Пробуем парсить как JSON
+                    images = json.loads(prop.images)
+                except:
+                    # Если не JSON, то это строка с URL через запятую
+                    if prop.images:
+                        images = [img.strip() for img in prop.images.split(',') if img.strip()]
+            
+            property_data = {
+                'id': prop.id,
+                'title': prop.title,
+                'price': prop.price,
+                'price_per_sqm': prop.price_per_sqm,
+                'total_area': prop.total_area,
+                'rooms_count': prop.rooms_count,
+                'floor': prop.floor,
+                'total_floors': prop.total_floors,
+                'construction_year': prop.construction_year,
+                'address': prop.address,
+                'longitude': prop.longitude,
+                'latitude': prop.latitude,
+                'image': images[0] if images else None,
+                'images': images,
+                'rating': rating,
+                'price_change': last_price_change.price_change if last_price_change else None,
+                'change_percent': last_price_change.change_percent if last_price_change else None
+            }
+            
+            # Добавляем информацию об адресе
+            if prop.dadata_address:
+                property_data['dadata_address'] = {
+                    'id': prop.dadata_address.id,
+                    'address': prop.dadata_address.dadata_address,
+                    'full_address': prop.dadata_address.dadata_full_address,
+                    'city': prop.dadata_address.city,
+                    'street': prop.dadata_address.street,
+                    'house': prop.dadata_address.house,
+                    'latitude': prop.dadata_address.latitude,
+                    'longitude': prop.dadata_address.longitude
+                }
+            
+            properties_data.append(property_data)
+        
+        return jsonify({
+            'success': True,
+            'properties': properties_data,
+            'total': len(properties_data)
+        })
+        
+    except Exception as e:
+        print(f"Error getting sale properties: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'properties': [],
+            'total': 0
+        })
 
 if __name__ == '__main__':
     with app.app_context():

@@ -15,14 +15,14 @@ import json
 import json as pyjson
 import csv
 from sqlalchemy.orm import aliased, joinedload
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 # from g4f.client import Client
 from io import StringIO
 import traceback
 import urllib.parse
 
 app = Flask(__name__)
-CORS(app)  # Разрешаем CORS для всех маршрутов
+CORS(app, resources={r"/api/*": {"origins": ["http://localhost:8080", "http://localhost:3000", "http://127.0.0.1:8080", "http://127.0.0.1:3000"]}})
 import os
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(os.path.dirname(__file__), "instance", "real_estate.db")}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -53,6 +53,16 @@ class Address(db.Model):
     slug = db.Column(db.String(255), unique=True)  # Красивый URL для адреса
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Связи с ЖК
+    residential_complex_id = db.Column(db.Integer, db.ForeignKey('residential_complex.id'))
+    yandex_complex_id = db.Column(db.Integer, db.ForeignKey('yandex_newbuildings.id'))
+    trend_building_id = db.Column(db.String, db.ForeignKey('trend_buildings.id'))
+    
+    # Отношения
+    residential_complex = db.relationship('ResidentialComplex', foreign_keys=[residential_complex_id])
+    yandex_complex = db.relationship('YandexNewBuilding', foreign_keys=[yandex_complex_id])
+    trend_building = db.relationship('TrendBuilding', foreign_keys=[trend_building_id])
 
 
 class Property(db.Model):
@@ -149,9 +159,15 @@ class Property(db.Model):
     address_id = db.Column(db.Integer, db.ForeignKey('address.id'))
     dadata_address = db.relationship('Address', backref='properties')
     
-    # Связь с жилым комплексом
+    # Связи с ЖК
     residential_complex_id = db.Column(db.Integer, db.ForeignKey('residential_complex.id'))
-    residential_complex = db.relationship('ResidentialComplex', backref='properties')
+    yandex_complex_id = db.Column(db.Integer, db.ForeignKey('yandex_newbuildings.id'))
+    trend_building_id = db.Column(db.Integer, db.ForeignKey('trend_buildings.id'))
+
+    # Отношения с ЖК
+    residential_complex = db.relationship('ResidentialComplex', foreign_keys=[residential_complex_id])
+    yandex_complex = db.relationship('YandexNewBuilding', foreign_keys=[yandex_complex_id])
+    trend_building = db.relationship('TrendBuilding', foreign_keys=[trend_building_id])
 
 
 class AntiznakStatus(db.Model):
@@ -185,7 +201,7 @@ class ResidentialComplex(db.Model):
     photo_url = db.Column(db.String(512))
     publ_date = db.Column(db.String(32))
     address_id = db.Column(db.Integer, db.ForeignKey('address.id'))
-    dadata_address = db.relationship('Address', backref='complexes')
+    dadata_address = db.relationship('Address', foreign_keys=[address_id], backref='complexes')
 
 
 class ComplexPhoto(db.Model):
@@ -213,7 +229,7 @@ class YandexNewBuilding(db.Model):
     url = db.Column(db.String(512))
     slug = db.Column(db.String(255), unique=True)  # Красивый URL
     address_id = db.Column(db.Integer, db.ForeignKey('address.id'))
-    dadata_address = db.relationship('Address', backref='yandex_newbuildings')
+    dadata_address = db.relationship('Address', foreign_keys=[address_id], backref='yandex_newbuildings')
 
 
 class Lead2CallLog(db.Model):
@@ -2442,7 +2458,7 @@ class TrendBuilding(db.Model):
     geometry_coordinates = db.Column(db.Text)  # JSON-строка
     # Новое поле для связи с Address
     address_id = db.Column(db.Integer, db.ForeignKey('address.id'))
-    dadata_address = db.relationship('Address', backref='trend_buildings')
+    dadata_address = db.relationship('Address', foreign_keys=[address_id], backref='trend_buildings')
 
 def import_trendagent_jsons():
     import json
@@ -4017,7 +4033,8 @@ def get_properties_light():
     
     # Базовый запрос с загрузкой связанных данных и фильтрацией некорректных данных
     query = Property.query.options(
-        db.joinedload(Property.rating_obj)
+        db.joinedload(Property.rating_obj),
+        db.joinedload(Property.dadata_address)
     ).filter(
         Property.id > 0,
         Property.title != 'nan',
@@ -4079,11 +4096,26 @@ def get_properties_light():
         if hasattr(prop, 'rating_obj') and prop.rating_obj:
             rating = prop.rating_obj.rating
         
+        # Получаем информацию об адресе из связанной таблицы
+        dadata_address = None
+        if prop.dadata_address:
+            dadata_address = {
+                'id': prop.dadata_address.id,
+                'address': prop.dadata_address.dadata_address,
+                'full_address': prop.dadata_address.dadata_full_address,
+                'city': prop.dadata_address.city,
+                'street': prop.dadata_address.street,
+                'house': prop.dadata_address.house,
+                'latitude': prop.dadata_address.latitude,
+                'longitude': prop.dadata_address.longitude
+            }
+        
         # Добавляем объект в ответ (фильтрация уже выполнена на уровне SQL)
         properties.append({
             'id': prop.id,
             'title': prop.title or 'Без названия',
             'address': prop.address or 'Адрес не указан',
+            'dadata_address': dadata_address,
             'price': prop.price,
             'total_area': prop.total_area,
             'rooms_count': prop.rooms_count,
@@ -4903,5 +4935,175 @@ def get_complex_detail(complex_id):
         }
     })
 
+@app.route('/api/residential-complexes')
+def get_residential_complexes():
+    """Получить уникальные жилые комплексы с данными из Yandex (только с квартирами)"""
+    try:
+        yandex_complexes = db.session.query(
+            YandexNewBuilding.id,
+            YandexNewBuilding.complex_name,
+            YandexNewBuilding.region,
+            YandexNewBuilding.address,
+            YandexNewBuilding.ready_date,
+            YandexNewBuilding.queue,
+            YandexNewBuilding.url
+        ).filter(
+            YandexNewBuilding.complex_name.isnot(None),
+            YandexNewBuilding.complex_name != ''
+        ).all()
+
+        stats = db.session.query(
+            Property.yandex_complex_id,
+            db.func.count(Property.id).label('count'),
+            db.func.avg(Property.price).label('avg_price'),
+            db.func.min(Property.price).label('min_price'),
+            db.func.max(Property.price).label('max_price')
+        ).group_by(Property.yandex_complex_id).all()
+        stats_map = {s.yandex_complex_id: s for s in stats}
+
+        complexes_data = []
+        for yc in yandex_complexes:
+            s = stats_map.get(yc.id)
+            if not s or s.count == 0:
+                continue  # Пропускаем комплексы без квартир
+            complex_data = {
+                'id': yc.id,
+                'name': yc.complex_name,
+                'region': yc.region,
+                'address': yc.address,
+                'ready_date': yc.ready_date,
+                'queue': yc.queue,
+                'url': yc.url,
+                'properties_count': s.count,
+                'avg_price': float(s.avg_price) if s.avg_price else 0,
+                'min_price': float(s.min_price) if s.min_price else 0,
+                'max_price': float(s.max_price) if s.max_price else 0,
+                'photos': [],
+                'trend_building': None
+            }
+            complexes_data.append(complex_data)
+
+        return jsonify({
+            'success': True,
+            'complexes': complexes_data,
+            'total': len(complexes_data)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/residential-complex/<int:complex_id>/properties')
+def get_residential_complex_properties(complex_id):
+    """Получить квартиры конкретного жилого комплекса"""
+    try:
+        # Получаем информацию о ЖК
+        yandex_complex = YandexNewBuilding.query.get(complex_id)
+        if not yandex_complex:
+            return jsonify({'success': False, 'error': 'ЖК не найден'}), 404
+        # Получаем квартиры в этом ЖК
+        properties = Property.query.filter_by(yandex_complex_id=complex_id).all()
+        # Получаем статистику цен
+        price_stats = db.session.query(
+            db.func.avg(Property.price).label('avg_price'),
+            db.func.min(Property.price).label('min_price'),
+            db.func.max(Property.price).label('max_price'),
+            db.func.count(Property.id).label('total_properties')
+        ).filter_by(yandex_complex_id=complex_id).first()
+        # Получаем фото из Trend Building
+        trend_photos = []
+        if yandex_complex.address_id:
+            trend_building = TrendBuilding.query.filter_by(address_id=yandex_complex.address_id).first()
+            if trend_building:
+                photos = ComplexPhoto.query.filter_by(complex_id=trend_building.id).all()
+                trend_photos = [{
+                    'id': photo.id,
+                    'photo_url': photo.photo_url,
+                    'title': photo.title,
+                    'is_main': photo.is_main
+                } for photo in photos]
+        # Формируем ответ
+        complex_data = {
+            'id': yandex_complex.id,
+            'name': yandex_complex.complex_name,
+            'region': yandex_complex.region,
+            'address': yandex_complex.address,
+            'ready_date': yandex_complex.ready_date,
+            'queue': yandex_complex.queue,
+            'url': yandex_complex.url,
+            'photos': trend_photos
+        }
+        statistics = {
+            'avg_price': float(price_stats.avg_price) if price_stats.avg_price else 0,
+            'min_price': float(price_stats.min_price) if price_stats.min_price else 0,
+            'max_price': float(price_stats.max_price) if price_stats.max_price else 0,
+            'total_properties': price_stats.total_properties
+        }
+        properties_data = []
+        for prop in properties:
+            # Получаем фото квартиры из поля images
+            images = []
+            if prop.images:
+                images = [img.strip() for img in prop.images.split(',') if img.strip()]
+            properties_data.append({
+                'id': prop.id,
+                'title': prop.title,
+                'price': prop.price,
+                'images': images,
+                'address': prop.address,
+                'dadata_address': prop.dadata_address.dadata_address if prop.dadata_address else None,
+                'total_area': prop.total_area,
+                'rooms_count': prop.rooms_count,
+                'floor': prop.floor,
+                'total_floors': prop.total_floors,
+                'rating': prop.rating_obj.rating if getattr(prop, 'rating_obj', None) else None
+            })
+        return jsonify({
+            'success': True,
+            'complex': complex_data,
+            'statistics': statistics,
+            'properties': properties_data
+        })
+    except Exception as e:
+        tb = traceback.format_exc()
+        return jsonify({'success': False, 'error': str(e), 'traceback': tb}), 500
+
+@app.route('/api/search', methods=['GET'])
+def search_complexes():
+    """Быстрый поиск жилых комплексов по строке поиска (только комплексы с квартирами)"""
+    try:
+        query = request.args.get('q', '').strip()
+        if len(query) < 2:
+            return jsonify({'complexes': []})
+
+        # Быстрый SQL-запрос: только комплексы с квартирами и совпадением по complex_name
+        query_lower = query.lower()
+        complexes = (
+            db.session.query(YandexNewBuilding)
+            .filter(
+                func.lower(YandexNewBuilding.complex_name).ilike(f'%{query_lower}%'),
+                db.session.query(Property.id)
+                    .filter(Property.yandex_complex_id == YandexNewBuilding.id)
+                    .exists()
+            )
+            .limit(10)
+            .all()
+        )
+
+        result = []
+        for complex in complexes:
+            properties_count = Property.query.filter_by(yandex_complex_id=complex.id).count()
+            result.append({
+                'id': complex.id,
+                'name': complex.complex_name,
+                'properties_count': properties_count
+            })
+
+        return jsonify({'complexes': result})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
     app.run(host='0.0.0.0', port=5000, debug=True)

@@ -22,7 +22,7 @@ import traceback
 import urllib.parse
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": ["http://localhost:8080", "http://localhost:3000", "http://127.0.0.1:8080", "http://127.0.0.1:3000", "http://localhost:8081", "http://81.90.182.151:8081", "http://81.90.182.151:8080"]}})
+CORS(app, resources={r"/api/*": {"origins": ["http://localhost:8080", "http://localhost:3000", "http://127.0.0.1:8080", "http://127.0.0.1:3000", "http://localhost:8081", "http://localhost:5173", "http://81.90.182.151:8081", "http://81.90.182.151:8080", "http://81.90.182.151:5173"]}})
 import os
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(os.path.dirname(__file__), "instance", "real_estate.db")}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False

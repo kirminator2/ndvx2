@@ -48,11 +48,13 @@ python app.py &
 BACKEND_PID=$!
 cd ..
 
-echo "Запуск Frontend..."
-# Запускаем frontend в фоне
+echo "Запуск Frontend в production режиме..."
+# Запускаем frontend в production режиме
 cd frontend/cozy-catalog-haven
 echo "Запуск frontend из директории: $(pwd)"
-npm run dev &
+export NODE_ENV=production
+npm run build
+npm run preview &
 FRONTEND_PID=$!
 cd ../..
 

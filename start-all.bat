@@ -15,8 +15,8 @@ echo Запуск Backend...
 start "Backend" cmd /k "cd backend && call ..\\.venv\\Scripts\\activate.bat && python app.py"
 
 echo.
-echo Запуск Frontend...
-start "Frontend" cmd /k "cd frontend\cozy-catalog-haven && npm run dev"
+echo Запуск Frontend в production режиме...
+start "Frontend" cmd /k "cd frontend\cozy-catalog-haven && set NODE_ENV=production && npm run build && npm run preview"
 
 echo.
 echo Оба приложения запущены!
